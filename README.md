@@ -148,7 +148,7 @@ kubectl -n wiki-rog port-forward svc/wiki-rog-app 8080:80
 **Optional**
 - `kubectl apply -f k8s/ingress.yaml` – Ingress (host/ingressClassName anpassen)
 - `kubectl apply -f k8s/ingest-cronjob.yaml` – tägliche Auto-Aktualisierung
-- `kubectl apply -f k8s/networkpolicy.yaml` – Egress zum externen Wiki (bei Default-Deny)
+- `kubectl apply -f k8s/networkpolicy.yaml` – **Netzwerk-Isolation** (siehe unten)
 - `kubectl apply -f k8s/qdrant.yaml` – Qdrant-Backend (danach `VECTOR_BACKEND=qdrant`)
 
 **Kleines CPU-Modell:** Standard ist `llama3.2:1b` (~1,3 GB) + `nomic-embed-text`.
@@ -174,6 +174,47 @@ Verbindungstest aus dem Cluster:
 kubectl -n wiki-rog run bs-test --rm -it --restart=Never \
   --image=wiki-rog:latest --command -- /app/wiki-rog test
 ```
+
+### Sicherheit: Ollama abschotten (Netzwerk-Isolation)
+
+`k8s/networkpolicy.yaml` schottet den Namespace per **Default-Deny** ab und gibt
+nur das Nötigste frei. Damit gilt:
+
+- **Ollama sendet nichts nach außen.** Der Ollama-Server hat **keinerlei Egress**
+  (nicht mal DNS) – er kann keine Wiki-Inhalte oder Prompts nach außen schicken.
+- **Ollama holt nur sein Modell – entkoppelt.** Der Modell-Download läuft nicht
+  über den produktiven Server, sondern über den kurzlebigen Job
+  `ollama-pull-models`, der die Modelle in ein PVC schreibt. **Nur dieser Pod**
+  darf ins Internet (`ollama-pull-egress`); danach liest der Server die Modelle
+  nur noch von der Platte.
+- **Ollama antwortet nur intern.** Erreichbar ist Ollama (Port 11434)
+  ausschließlich vom App-Pod (WebUI) und vom Ingest-Job – nie von außen.
+- **Ingest** darf nach außen nur zum externen Wiki (443/80), **App** nur zur
+  WebUI (eingehend 8080) und intern zu Ollama/Qdrant, **Qdrant** hat keinen Egress.
+
+| Komponente | Eingehend | Ausgehend |
+|---|---|---|
+| Ollama (serving) | App, Ingest (11434) | **nichts** |
+| ollama-pull (Job) | – | Internet 443/80 (nur Modell-Download) |
+| App / WebUI | alle (8080) | Ollama, Qdrant (intern) + DNS |
+| Ingest | – | Ollama, Qdrant, externes Wiki (443/80) + DNS |
+| Qdrant (optional) | App, Ingest (6333) | **nichts** |
+
+Anwenden (idempotent, in einem Rutsch – Default-Deny + alle Freigaben):
+```bash
+kubectl apply -f k8s/networkpolicy.yaml
+```
+
+Hinweise:
+- **CNI-Voraussetzung:** Es braucht eine NetworkPolicy-durchsetzende CNI
+  (Calico, Cilium, …). Ohne Durchsetzung (z. B. Flannel) haben die Regeln keine
+  Wirkung. Prüfen z. B. mit einem Test-Pod, ob Ollamas Egress wirklich blockiert.
+- **Shared PVC:** `ollama-pull-models` und der Ollama-Server teilen sich das
+  `ollama-models`-PVC (ReadWriteOnce). Im Einzelknoten-Cluster unkritisch; bei
+  mehreren Knoten sollten beide auf demselben Knoten laufen (oder RWX nutzen).
+- **Noch strenger (nur Cilium):** Statt „nur der Pull-Pod darf ins ganze
+  Internet" lässt sich mit einer `CiliumNetworkPolicy` per `toFQDNs` gezielt nur
+  `registry.ollama.ai` freigeben. Sag Bescheid, dann liefere ich die Variante.
 
 ## Projektstruktur
 

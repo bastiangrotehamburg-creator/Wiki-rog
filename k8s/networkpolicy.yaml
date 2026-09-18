@@ -1,25 +1,47 @@
-# Optional – nur nötig, wenn im Cluster/Namespace eine Default-Deny-Policy gilt.
-# Erlaubt den wiki-rog-Pods den Zugriff auf das EXTERNE Wiki sowie das Laden
-# der Ollama-Modelle (beides über HTTPS/443) und DNS-Auflösung. App und Ollama
-# dürfen zusätzlich clusterintern miteinander reden.
+# ===========================================================================
+# Netzwerk-Isolation für wiki-rog
 #
-# Anwenden mit:  kubectl apply -f k8s/networkpolicy.yaml
-# Voraussetzung: eine CNI mit NetworkPolicy-Unterstützung (Calico, Cilium, ...).
+# Ziel:
+#   - OLLAMA darf NICHTS nach außen senden (kein Datenabfluss).
+#   - Modelle werden ausschließlich vom kurzlebigen Pull-Job geholt.
+#   - OLLAMA ist nur intern von App/Ingest erreichbar ("nur per WebUI").
+#
+# VORAUSSETZUNG: eine NetworkPolicy-durchsetzende CNI (Calico, Cilium, ...).
+# Bei CNIs ohne Durchsetzung (z. B. Flannel) haben diese Regeln KEINE Wirkung.
+#
+# Anwenden:  kubectl apply -f k8s/networkpolicy.yaml
+# ===========================================================================
 ---
+# 1) Default-Deny: im Namespace ist standardmäßig JEDER Ein-/Ausgang verboten.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: wiki-rog-egress
+  name: default-deny-all
+  namespace: wiki-rog
+  labels:
+    app.kubernetes.io/part-of: wiki-rog
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress", "Egress"]
+---
+# 2) DNS erlauben – aber NUR für die Pods, die nach außen/intern verbinden.
+#    Ollama (serving) ist bewusst NICHT enthalten und bekommt somit gar keinen
+#    Egress (auch kein DNS -> kein DNS-Exfil).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
   namespace: wiki-rog
   labels:
     app.kubernetes.io/part-of: wiki-rog
 spec:
   podSelector:
-    matchLabels:
-      app.kubernetes.io/part-of: wiki-rog
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values: ["wiki-rog-app", "wiki-rog-ingest", "ollama-pull"]
   policyTypes: ["Egress"]
   egress:
-    # DNS-Auflösung (kube-dns)
     - to:
         - namespaceSelector: {}
       ports:
@@ -27,48 +49,163 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # HTTPS nach außen: externes Wiki + Modell-Downloads von Ollama
-    - to:
-        - ipBlock:
-            cidr: 0.0.0.0/0
-            # private/interne Bereiche ausschließen (nur öffentliches Internet).
-            # Liegt DEIN externes Wiki in einem privaten Netz, den passenden
-            # Block unten entfernen bzw. das Wiki-Subnetz gezielt zulassen.
-            except:
-              - 10.0.0.0/8
-              - 172.16.0.0/12
-              - 192.168.0.0/16
-      ports:
-        - protocol: TCP
-          port: 443
-        - protocol: TCP
-          port: 80
-    # Clusterintern (App/Ingest -> Ollama:11434 und -> Qdrant:6333)
-    - to:
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/part-of: wiki-rog
-      ports:
-        - protocol: TCP
-          port: 11434
-        - protocol: TCP
-          port: 6333
 ---
+# 3) OLLAMA (serving): NUR erreichbar von App & Ingest auf 11434.
+#    KEIN Egress-Block -> Ollama darf NICHTS nach außen (oder intern) senden.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: wiki-rog-app-ingress
+  name: ollama-lockdown
   namespace: wiki-rog
   labels:
+    app.kubernetes.io/name: ollama
+    app.kubernetes.io/part-of: wiki-rog
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ollama
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: wiki-rog-app
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: wiki-rog-ingest
+      ports:
+        - protocol: TCP
+          port: 11434
+  # egress: absichtlich leer -> alles ausgehende ist verboten.
+---
+# 4) APP: Ingress auf 8080 (WebUI) von überall; Egress nur zu Ollama & Qdrant.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-netpol
+  namespace: wiki-rog
+  labels:
+    app.kubernetes.io/name: wiki-rog-app
     app.kubernetes.io/part-of: wiki-rog
 spec:
   podSelector:
     matchLabels:
       app.kubernetes.io/name: wiki-rog-app
-  policyTypes: ["Ingress"]
+  policyTypes: ["Ingress", "Egress"]
   ingress:
-    # Zugriff auf die Web-UI (port-forward oder Ingress-Controller).
-    # Bei Bedarf hier gezielt auf den Ingress-Namespace einschränken.
     - ports:
         - protocol: TCP
           port: 8080
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ollama
+      ports:
+        - protocol: TCP
+          port: 11434
+    - to:                       # nur relevant, wenn Qdrant-Backend genutzt wird
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: qdrant
+      ports:
+        - protocol: TCP
+          port: 6333
+---
+# 5) INGEST: Egress zu Ollama (Embeddings), Qdrant (optional) und dem EXTERNEN
+#    BookStack-Wiki (443/80). Kein Ingress nötig.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ingest-netpol
+  namespace: wiki-rog
+  labels:
+    app.kubernetes.io/name: wiki-rog-ingest
+    app.kubernetes.io/part-of: wiki-rog
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: wiki-rog-ingest
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ollama
+      ports:
+        - protocol: TCP
+          port: 11434
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: qdrant
+      ports:
+        - protocol: TCP
+          port: 6333
+    - to:                       # externes Wiki (öffentliches Internet)
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            # Interne/Metadaten-Bereiche ausschließen. Liegt DEIN Wiki in einem
+            # privaten Netz, den betreffenden Block entfernen bzw. gezielt zulassen.
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80
+---
+# 6) OLLAMA-PULL: der EINZIGE Pod mit Internet-Egress – nur zum Modell-Download.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ollama-pull-egress
+  namespace: wiki-rog
+  labels:
+    app.kubernetes.io/name: ollama-pull
+    app.kubernetes.io/part-of: wiki-rog
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ollama-pull
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80
+---
+# 7) QDRANT (optional): nur von App/Ingest auf 6333 erreichbar, kein Egress.
+#    Wirkt nur, wenn k8s/qdrant.yaml deployt ist (sonst matcht der Selektor nichts).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: qdrant-netpol
+  namespace: wiki-rog
+  labels:
+    app.kubernetes.io/name: qdrant
+    app.kubernetes.io/part-of: wiki-rog
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: qdrant
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: wiki-rog-app
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: wiki-rog-ingest
+      ports:
+        - protocol: TCP
+          port: 6333
+  # egress: leer -> Qdrant darf nichts nach außen senden.

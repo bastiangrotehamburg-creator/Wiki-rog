@@ -1,5 +1,13 @@
-# Einmaliger Job: lädt die (kleinen) Modelle in den Ollama-Server.
-# Idempotent – ein erneuter Lauf lädt bereits vorhandene Modelle nicht neu.
+# Einmaliger Job: lädt die Modelle in das ollama-models-PVC.
+#
+# WICHTIG (Sicherheit): Der Pull läuft NICHT über den produktiven Ollama-Server,
+# sondern in einem eigenen, kurzlebigen Pod, der eine LOKALE Ollama-Instanz
+# startet und die Modelle direkt ins gemeinsame PVC schreibt. Nur DIESER Pod
+# darf ins Internet (siehe networkpolicy.yaml: ollama-pull-egress). Der
+# produktive Ollama-Server bekommt dadurch KEINEN Egress und kann keine Daten
+# nach außen senden – er liest die Modelle nur vom PVC.
+#
+# Idempotent – bereits vorhandene Modelle werden nicht erneut geladen.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -13,6 +21,7 @@ spec:
   template:
     metadata:
       labels:
+        app.kubernetes.io/name: ollama-pull
         app.kubernetes.io/part-of: wiki-rog
     spec:
       restartPolicy: OnFailure
@@ -21,7 +30,7 @@ spec:
           image: ollama/ollama:latest
           env:
             - name: OLLAMA_HOST
-              value: "http://ollama:11434"
+              value: "127.0.0.1:11434"   # lokale Instanz, nicht der Service
             - name: LLM_MODEL
               valueFrom:
                 configMapKeyRef:
@@ -36,19 +45,27 @@ spec:
           args:
             - |
               set -e
-              echo "Warte auf Ollama unter $OLLAMA_HOST ..."
-              until ollama list >/dev/null 2>&1; do
-                sleep 3
-              done
-              echo "Ollama bereit. Lade Modelle ..."
+              echo "Starte lokale Ollama-Instanz zum Herunterladen ..."
+              ollama serve &
+              SRV=$!
+              until ollama list >/dev/null 2>&1; do sleep 2; done
+              echo "Lade Modelle ins PVC ..."
               ollama pull "$LLM_MODEL"
               ollama pull "$EMBED_MODEL"
-              echo "Fertig. Verfügbare Modelle:"
+              echo "Vorhandene Modelle:"
               ollama list
+              kill "$SRV" 2>/dev/null || true
+          volumeMounts:
+            - name: models
+              mountPath: /root/.ollama
           resources:
             requests:
-              cpu: "100m"
-              memory: "128Mi"
-            limits:
-              cpu: "1"
+              cpu: "200m"
               memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: ollama-models
