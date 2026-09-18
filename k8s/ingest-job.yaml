@@ -1,0 +1,45 @@
+# Einmaliger Ingest-Job: liest BookStack aus und baut den Vektorindex.
+# Erneut ausführen zum Aktualisieren:
+#   kubectl -n wiki-rog delete job wiki-rog-ingest --ignore-not-found
+#   kubectl apply -f k8s/ingest-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wiki-rog-ingest
+  namespace: wiki-rog
+  labels:
+    app.kubernetes.io/name: wiki-rog-ingest
+    app.kubernetes.io/part-of: wiki-rog
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: wiki-rog
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: ingest
+          image: wiki-rog:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "cli.py", "ingest"]
+          envFrom:
+            - configMapRef:
+                name: wiki-rog-config
+            - secretRef:
+                name: wiki-rog-secret
+          volumeMounts:
+            - name: chroma
+              mountPath: /data
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+      volumes:
+        - name: chroma
+          persistentVolumeClaim:
+            claimName: chroma-data

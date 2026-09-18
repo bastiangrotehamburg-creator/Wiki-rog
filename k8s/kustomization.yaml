@@ -1,0 +1,13 @@
+# Kern-Ressourcen. Optionale Bausteine (ingress.yaml, ingest-cronjob.yaml)
+# und dein secret.yaml werden bewusst separat angewendet.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: wiki-rog
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - storage.yaml
+  - ollama.yaml
+  - ollama-pull-job.yaml
+  - app.yaml
+  - ingest-job.yaml

@@ -1,0 +1,77 @@
+# Wiki-rog Web-UI (Streamlit) + Service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wiki-rog-app
+  namespace: wiki-rog
+  labels:
+    app.kubernetes.io/name: wiki-rog-app
+    app.kubernetes.io/part-of: wiki-rog
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate            # teilt sich RWO-Volume mit dem Ingest-Job
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: wiki-rog-app
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: wiki-rog-app
+        app.kubernetes.io/part-of: wiki-rog
+    spec:
+      containers:
+        - name: app
+          image: wiki-rog:latest       # eigenes Image bauen & pushen (siehe README)
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8501
+              name: http
+          envFrom:
+            - configMapRef:
+                name: wiki-rog-config
+            - secretRef:
+                name: wiki-rog-secret
+          volumeMounts:
+            - name: chroma
+              mountPath: /data
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          readinessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: 8501
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: 8501
+            initialDelaySeconds: 30
+            periodSeconds: 30
+      volumes:
+        - name: chroma
+          persistentVolumeClaim:
+            claimName: chroma-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wiki-rog-app
+  namespace: wiki-rog
+  labels:
+    app.kubernetes.io/name: wiki-rog-app
+    app.kubernetes.io/part-of: wiki-rog
+spec:
+  selector:
+    app.kubernetes.io/name: wiki-rog-app
+  ports:
+    - port: 80
+      targetPort: 8501
+      name: http

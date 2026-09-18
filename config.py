@@ -46,7 +46,7 @@ class Config:
 
     # Ollama
     ollama_url: str = "http://localhost:11434"
-    ollama_llm_model: str = "llama3.1"
+    ollama_llm_model: str = "llama3.2:1b"
     ollama_embed_model: str = "nomic-embed-text"
 
     # Vektorspeicher / Chunking / Retrieval
@@ -66,7 +66,7 @@ class Config:
             book_ids=_id_list("BOOKSTACK_BOOK_IDS"),
             shelf_ids=_id_list("BOOKSTACK_SHELF_IDS"),
             ollama_url=os.getenv("OLLAMA_URL", "http://localhost:11434").rstrip("/"),
-            ollama_llm_model=os.getenv("OLLAMA_LLM_MODEL", "llama3.1"),
+            ollama_llm_model=os.getenv("OLLAMA_LLM_MODEL", "llama3.2:1b"),
             ollama_embed_model=os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text"),
             chroma_dir=os.getenv("CHROMA_DIR", "./data/chroma"),
             chroma_collection=os.getenv("CHROMA_COLLECTION", "bookstack"),

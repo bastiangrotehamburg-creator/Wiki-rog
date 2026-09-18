@@ -1,0 +1,24 @@
+# Optional: Ingress für die Web-UI. Passe host & ingressClassName an deine
+# Umgebung an. Ohne Ingress erreichst du die App per port-forward (siehe README).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: wiki-rog
+  namespace: wiki-rog
+  labels:
+    app.kubernetes.io/part-of: wiki-rog
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: wiki-rog.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: wiki-rog-app
+                port:
+                  number: 80

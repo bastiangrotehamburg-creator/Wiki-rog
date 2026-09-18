@@ -5,6 +5,9 @@
 data/
 *.sqlite3
 
+# Kubernetes-Secret mit echten Zugangsdaten (nur secret.example.yaml einchecken)
+k8s/secret.yaml
+
 # Python
 __pycache__/
 *.py[cod]

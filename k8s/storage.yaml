@@ -1,0 +1,19 @@
+# Persistenter Vektorspeicher (ChromaDB), geteilt von App (lesend) und
+# Ingest-Job (schreibend).
+#
+# HINWEIS: ReadWriteOnce funktioniert im Einzelknoten-Cluster problemlos.
+# Bei mehreren Knoten müssen App-Pod und Ingest-Job auf demselben Knoten
+# laufen – oder nutze eine ReadWriteMany-fähige StorageClass (z. B. NFS)
+# und setze accessModes unten auf ["ReadWriteMany"].
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: chroma-data
+  namespace: wiki-rog
+  labels:
+    app.kubernetes.io/part-of: wiki-rog
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi
