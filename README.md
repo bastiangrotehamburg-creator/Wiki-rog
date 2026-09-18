@@ -31,6 +31,10 @@ Quellenangaben, Hell-/Dunkelmodus je nach System, responsiv bis Smartphone-Breit
 |---|---|
 | ![Start hell](docs/screenshots/empty-light.png) | ![Start dunkel](docs/screenshots/empty-dark.png) |
 
+| Admin-Leiste „Wiki neu einlesen" (hell) | Admin-Leiste (dunkel) |
+|---|---|
+| ![Admin hell](docs/screenshots/admin-light.png) | ![Admin dunkel](docs/screenshots/admin-dark.png) |
+
 | Desktop (dunkel) | Desktop (hell) |
 |---|---|
 | ![Desktop dunkel](docs/screenshots/desktop-dark.png) | ![Desktop hell](docs/screenshots/desktop-light.png) |
@@ -76,6 +80,19 @@ Tests:
 ```bash
 go test ./...
 ```
+
+### Wiki anlernen (indexieren)
+
+„Anlernen" = die BookStack-Inhalte **indexieren**. Drei Wege — ausführlich in
+**[docs/ANLEITUNG-LERNEN.md](docs/ANLEITUNG-LERNEN.md)**:
+
+1. **Admin-Button in der WebUI** – Admins sehen oben die Leiste
+   **„Wiki neu einlesen"** (mit Option „komplett neu (reset)"). Läuft im
+   Hintergrund mit Live-Status. Admin = Nutzer mit `"admin": true` in
+   `access.json` (bzw. `OPEN_ADMIN=true` im offenen Modus).
+2. **CLI:** `./wiki-rog ingest` bzw. `./wiki-rog ingest --reset`.
+3. **Kubernetes-Job:** `k8s/ingest-job.yaml` (einmalig) oder
+   `k8s/ingest-cronjob.yaml` (täglich), gruppenweise via `k8s/ingest-groups-example.yaml`.
 
 ## Vektorspeicher: `local` oder `qdrant`
 
@@ -319,8 +336,10 @@ Wiki-rog/
 │   ├── auth/                  # Login, Gruppen→Collection, PBKDF2, Sessions (+ Tests)
 │   ├── rag/                   # Retrieval (mehrere Collections) + Antwortgenerierung
 │   ├── ingest/               # Pipeline: fetch → chunk → embed → store
-│   └── webui/                 # HTTP-Server + Chat-UI + Login (SSE)
+│   ├── admin/                 # Reindex-Runner für den WebUI-Admin-Button
+│   └── webui/                 # HTTP-Server + Chat-UI + Login + Admin (SSE)
 ├── config/access.example.json # Vorlage für Login/Gruppen
+├── docs/ANLEITUNG-LERNEN.md   # Anleitung zum Indexieren (inkl. Admin-Button)
 ├── go.mod
 ├── Dockerfile                 # Multi-Stage Go-Build (distroless)
 ├── .env.example

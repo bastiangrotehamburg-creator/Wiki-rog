@@ -1,20 +1,33 @@
 {
-  "_hinweis": "Kopiere nach config/access.json. Passwort-Hashes mit 'wiki-rog hashpw' erzeugen. Ist keine access.json vorhanden, läuft die WebUI offen (kein Login).",
+  "_hinweis": "Kopiere nach config/access.json. Passwort-Hashes mit 'wiki-rog hashpw' erzeugen. Ist keine access.json vorhanden, läuft die WebUI offen (kein Login). 'admin': true erlaubt den 'Wiki neu einlesen'-Button. Gruppen mit 'bookstack_token_id/secret' kann der Admin-Button direkt neu einlesen.",
   "groups": {
-    "all": { "collection": "bookstack-all" },
-    "it":  { "collection": "bookstack-it" },
-    "hr":  { "collection": "bookstack-hr" }
+    "all": {
+      "collection": "bookstack-all",
+      "bookstack_token_id": "TOKEN_ID_ALLE",
+      "bookstack_token_secret": "TOKEN_SECRET_ALLE"
+    },
+    "it": {
+      "collection": "bookstack-it",
+      "bookstack_token_id": "TOKEN_ID_IT",
+      "bookstack_token_secret": "TOKEN_SECRET_IT"
+    },
+    "hr": {
+      "collection": "bookstack-hr",
+      "bookstack_token_id": "TOKEN_ID_HR",
+      "bookstack_token_secret": "TOKEN_SECRET_HR"
+    }
   },
   "users": [
+    {
+      "username": "admin",
+      "password_hash": "pbkdf2_sha256$210000$ERSETZEN$ERSETZEN",
+      "groups": ["it", "hr", "all"],
+      "admin": true
+    },
     {
       "username": "alice",
       "password_hash": "pbkdf2_sha256$210000$ERSETZEN$ERSETZEN",
       "groups": ["hr", "all"]
-    },
-    {
-      "username": "bob",
-      "password_hash": "pbkdf2_sha256$210000$ERSETZEN$ERSETZEN",
-      "groups": ["it", "all"]
     }
   ]
 }

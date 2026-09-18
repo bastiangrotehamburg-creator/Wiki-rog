@@ -29,9 +29,13 @@ const (
 	cookieName   = "wr_session"
 )
 
-// Group ordnet einer Gruppe eine Vektor-Collection zu.
+// Group ordnet einer Gruppe eine Vektor-Collection zu. Optional kann ein
+// eigenes BookStack-Token hinterlegt werden, damit der Admin-Button diese
+// Gruppe direkt aus der WebUI (neu) einlesen kann.
 type Group struct {
-	Collection string `json:"collection"`
+	Collection  string `json:"collection"`
+	TokenID     string `json:"bookstack_token_id,omitempty"`
+	TokenSecret string `json:"bookstack_token_secret,omitempty"`
 }
 
 // User ist ein Login-Konto mit Passwort-Hash und Gruppenzugehörigkeit.
@@ -39,6 +43,15 @@ type User struct {
 	Username     string   `json:"username"`
 	PasswordHash string   `json:"password_hash"`
 	Groups       []string `json:"groups"`
+	Admin        bool     `json:"admin"`
+}
+
+// GroupTarget beschreibt eine (neu) einlesbare Gruppe inkl. Token.
+type GroupTarget struct {
+	Group       string
+	Collection  string
+	TokenID     string
+	TokenSecret string
 }
 
 type accessFile struct {
@@ -50,6 +63,7 @@ type accessFile struct {
 type Session struct {
 	Username string   `json:"u"`
 	Groups   []string `json:"g"`
+	Admin    bool     `json:"a"`
 	Exp      int64    `json:"e"`
 }
 
@@ -135,6 +149,24 @@ func (s *Service) CollectionsFor(groups []string) []string {
 	return out
 }
 
+// GroupTargets liefert alle Gruppen mit hinterlegtem BookStack-Token
+// (für die Neuindizierung per Admin-Button).
+func (s *Service) GroupTargets() []GroupTarget {
+	var out []GroupTarget
+	for name, g := range s.groups {
+		if g.TokenID == "" || g.Collection == "" {
+			continue
+		}
+		out = append(out, GroupTarget{
+			Group:       name,
+			Collection:  g.Collection,
+			TokenID:     g.TokenID,
+			TokenSecret: g.TokenSecret,
+		})
+	}
+	return out
+}
+
 // --- Sessions (signiertes Cookie) -----------------------------------------
 
 func (s *Service) sign(payload []byte) string {
@@ -145,7 +177,7 @@ func (s *Service) sign(payload []byte) string {
 
 // IssueCookie erzeugt ein signiertes Session-Cookie für den Nutzer.
 func (s *Service) IssueCookie(u User) *http.Cookie {
-	sess := Session{Username: u.Username, Groups: u.Groups, Exp: time.Now().Add(s.ttl).Unix()}
+	sess := Session{Username: u.Username, Groups: u.Groups, Admin: u.Admin, Exp: time.Now().Add(s.ttl).Unix()}
 	payload, _ := json.Marshal(sess)
 	enc := base64.RawURLEncoding.EncodeToString(payload)
 	value := enc + "." + s.sign([]byte(enc))

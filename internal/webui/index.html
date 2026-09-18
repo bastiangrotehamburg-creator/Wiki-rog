@@ -36,6 +36,18 @@
     padding: 6px 12px; border-radius: 8px; white-space: nowrap; }
   .logout:hover { border-color: var(--accent); }
   body[data-auth="1"] .logout { display: inline-block; }
+  /* Admin-Leiste */
+  .adminbar { display: none; align-items: center; gap: 12px; flex-wrap: wrap;
+    max-width: 820px; margin: 10px auto 0; padding: 10px 12px; border-radius: 10px;
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    border: 1px solid var(--border); font-size: 13px; }
+  body[data-admin="1"] .adminbar { display: flex; }
+  .adminbar button { padding: 8px 14px; border: 0; border-radius: 8px;
+    background: var(--accent); color: #fff; font-size: 13px; cursor: pointer; }
+  .adminbar button:hover { background: var(--accent-hover); }
+  .adminbar button:disabled { opacity: .6; cursor: default; }
+  .adminbar label { color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+  .adminbar .status { color: var(--muted); margin-left: auto; }
   main { max-width: 820px; margin: 0 auto; padding: 16px; }
   #chat { display: flex; flex-direction: column; gap: 14px; padding-bottom: 110px; }
   .msg { padding: 12px 14px; border-radius: 14px; line-height: 1.55;
@@ -69,7 +81,7 @@
   button:disabled { opacity: .6; cursor: default; }
 </style>
 </head>
-<body data-auth="0">
+<body data-auth="0" data-admin="0">
 <header>
   <div class="brand">
     <svg width="34" height="34" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -85,6 +97,11 @@
     <a class="logout" id="logout" href="/logout">Abmelden</a>
   </div>
 </header>
+<div class="adminbar" id="adminbar">
+  <button id="reindex" type="button">Wiki neu einlesen</button>
+  <label><input type="checkbox" id="reset"> komplett neu (reset)</label>
+  <span class="status" id="astatus">bereit</span>
+</div>
 <main>
   <div id="empty">
     <div class="badge">
@@ -173,6 +190,52 @@
     es.addEventListener('done', finish);
     es.onerror = () => { finish(); };
   });
+
+  // --- Admin: Wiki neu einlesen -------------------------------------------
+  if (document.body.dataset.admin === '1') {
+    const reindexBtn = document.getElementById('reindex');
+    const resetBox = document.getElementById('reset');
+    const astatus = document.getElementById('astatus');
+    let polling = null;
+
+    function render(st) {
+      if (st.running) {
+        reindexBtn.disabled = true;
+        const last = (st.log && st.log.length) ? st.log[st.log.length - 1] : 'läuft …';
+        astatus.textContent = '⏳ ' + last;
+      } else {
+        reindexBtn.disabled = false;
+        if (st.error) astatus.textContent = '⚠️ ' + (st.result || st.error);
+        else if (st.result) astatus.textContent = '✅ ' + st.result;
+        else astatus.textContent = 'bereit';
+        if (polling) { clearInterval(polling); polling = null; }
+      }
+    }
+
+    function poll() {
+      fetch('/api/admin/status').then(r => r.json()).then(render).catch(() => {});
+    }
+
+    reindexBtn.addEventListener('click', () => {
+      const reset = resetBox.checked ? '1' : '0';
+      astatus.textContent = '⏳ starte …';
+      reindexBtn.disabled = true;
+      fetch('/api/admin/reindex?reset=' + reset, { method: 'POST' })
+        .then(async (r) => {
+          const st = await r.json().catch(() => ({}));
+          if (!r.ok) { astatus.textContent = '⚠️ ' + (st.error || 'Fehler'); reindexBtn.disabled = false; return; }
+          render(st);
+          if (!polling) polling = setInterval(poll, 2000);
+        })
+        .catch((e) => { astatus.textContent = '⚠️ ' + e; reindexBtn.disabled = false; });
+    });
+
+    // Beim Laden Status prüfen (falls gerade ein Lauf aktiv ist)
+    fetch('/api/admin/status').then(r => r.json()).then((st) => {
+      render(st);
+      if (st.running && !polling) polling = setInterval(poll, 2000);
+    }).catch(() => {});
+  }
 </script>
 </body>
 </html>

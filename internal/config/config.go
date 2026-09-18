@@ -45,6 +45,8 @@ type Config struct {
 	SessionSecret   string
 	SessionTTLHours int
 	SessionSecure   bool
+	// Im offenen Modus (ohne Login) den Admin-Button/Reindex erlauben.
+	OpenAdmin bool
 }
 
 // Load liest die Konfiguration. Eine vorhandene .env wird geladen, ohne
@@ -80,6 +82,7 @@ func Load() Config {
 		SessionSecret:   os.Getenv("SESSION_SECRET"),
 		SessionTTLHours: intEnv("SESSION_TTL_HOURS", 12),
 		SessionSecure:   boolEnv("SESSION_SECURE", false),
+		OpenAdmin:       boolEnv("OPEN_ADMIN", false),
 	}
 }
 

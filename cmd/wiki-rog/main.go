@@ -17,6 +17,7 @@ import (
 	"os"
 	"strings"
 
+	"wiki-rog/internal/admin"
 	"wiki-rog/internal/auth"
 	"wiki-rog/internal/bookstack"
 	"wiki-rog/internal/config"
@@ -211,9 +212,31 @@ func cmdServe(ctx context.Context, cfg config.Config) error {
 	if authSvc != nil {
 		mode = "Login + gruppenbasierter Zugriff"
 	}
+
+	// Admin-Reindex: Ziele je nach Modus.
+	adm := webui.AdminConfig{
+		Runner:    admin.NewRunner(cfg, mgr),
+		OpenAdmin: cfg.OpenAdmin,
+		OpenTargets: []admin.Target{{
+			Collection:  cfg.VectorCollection,
+			TokenID:     cfg.BookStackTokenID,
+			TokenSecret: cfg.BookStackTokenSecret,
+		}},
+	}
+	if authSvc != nil {
+		for _, t := range authSvc.GroupTargets() {
+			adm.GroupTargets = append(adm.GroupTargets, admin.Target{
+				Group:       t.Group,
+				Collection:  t.Collection,
+				TokenID:     t.TokenID,
+				TokenSecret: t.TokenSecret,
+			})
+		}
+	}
+
 	fmt.Printf("Wiki-rog Web-UI läuft auf %s (Backend: %s, Zugriff: %s)\n",
 		cfg.HTTPAddr, cfg.VectorBackend, mode)
-	return webui.Serve(ctx, cfg.HTTPAddr, engine, authSvc, []string{cfg.VectorCollection})
+	return webui.Serve(ctx, cfg.HTTPAddr, engine, authSvc, []string{cfg.VectorCollection}, adm)
 }
 
 func cmdHashpw(args []string) error {
