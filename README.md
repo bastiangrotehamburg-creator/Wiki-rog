@@ -20,8 +20,12 @@ Frage ──> Embedding ──> Ähnlichkeitssuche ──> Kontext ──> LLM (
 
 ## Screenshots
 
-Die Web-UI (`wiki-rog serve`) – schlichter Chat, Antworten mit Quellenangaben,
-Hell-/Dunkelmodus je nach System, responsiv bis Smartphone-Breite.
+Die Web-UI (`wiki-rog serve`) – schlichter Chat im BookStack-Blau, Antworten mit
+Quellenangaben, Hell-/Dunkelmodus je nach System, responsiv bis Smartphone-Breite.
+
+| Startzustand (hell) | Startzustand (dunkel) |
+|---|---|
+| ![Start hell](docs/screenshots/empty-light.png) | ![Start dunkel](docs/screenshots/empty-dark.png) |
 
 | Desktop (dunkel) | Desktop (hell) |
 |---|---|
