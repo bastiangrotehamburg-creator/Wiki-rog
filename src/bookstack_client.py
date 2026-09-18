@@ -49,10 +49,25 @@ def _strip_html(html: str) -> str:
 
 
 class BookStackClient:
-    def __init__(self, base_url: str, token_id: str, token_secret: str, timeout: int = 60):
+    def __init__(
+        self,
+        base_url: str,
+        token_id: str,
+        token_secret: str,
+        timeout: int = 60,
+        verify_ssl: bool = True,
+    ):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.session = requests.Session()
+        # Verifizierung gegen das (externe) Wiki. Eine eigene CA lässt sich
+        # ohne Codeänderung über die Umgebungsvariable REQUESTS_CA_BUNDLE
+        # einbinden; verify_ssl=False deaktiviert die Prüfung (nur Notlösung).
+        self.session.verify = verify_ssl
+        if not verify_ssl:
+            import urllib3
+
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
         self.session.headers.update(
             {
                 "Authorization": f"Token {token_id}:{token_secret}",

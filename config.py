@@ -25,6 +25,13 @@ def _float(name: str, default: float) -> float:
         return default
 
 
+def _bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw in (None, ""):
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on", "ja"}
+
+
 def _id_list(name: str) -> list[int]:
     raw = os.getenv(name, "") or ""
     ids: list[int] = []
@@ -43,6 +50,9 @@ class Config:
     bookstack_token_secret: str = ""
     book_ids: list[int] = field(default_factory=list)
     shelf_ids: list[int] = field(default_factory=list)
+    # TLS-Verifizierung gegen das externe Wiki (bei self-signed ggf. False,
+    # besser: eigene CA über REQUESTS_CA_BUNDLE einbinden).
+    bookstack_verify_ssl: bool = True
 
     # Ollama
     ollama_url: str = "http://localhost:11434"
@@ -65,6 +75,7 @@ class Config:
             bookstack_token_secret=os.getenv("BOOKSTACK_TOKEN_SECRET", ""),
             book_ids=_id_list("BOOKSTACK_BOOK_IDS"),
             shelf_ids=_id_list("BOOKSTACK_SHELF_IDS"),
+            bookstack_verify_ssl=_bool("BOOKSTACK_VERIFY_SSL", True),
             ollama_url=os.getenv("OLLAMA_URL", "http://localhost:11434").rstrip("/"),
             ollama_llm_model=os.getenv("OLLAMA_LLM_MODEL", "llama3.2:1b"),
             ollama_embed_model=os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text"),

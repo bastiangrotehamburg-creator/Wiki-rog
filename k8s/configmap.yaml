@@ -22,8 +22,12 @@ data:
   RETRIEVAL_TOP_K: "5"
   RETRIEVAL_MAX_DISTANCE: "1.0"
 
-  # --- BookStack (nicht-geheime Teile) --------------------------------------
-  # URL hier, Token in wiki-rog-secret. Optionale Filter (leer = alles):
+  # --- BookStack (EXTERN, außerhalb des Clusters) ---------------------------
+  # Externe URL des Wikis eintragen. Token in wiki-rog-secret.
+  # Der Ingest-Job/App brauchen dafür Egress nach außen (siehe networkpolicy.yaml).
   BOOKSTACK_URL: "https://wiki.example.com"
   BOOKSTACK_BOOK_IDS: ""
   BOOKSTACK_SHELF_IDS: ""
+  # TLS-Prüfung des externen Wikis. Für private CA lieber REQUESTS_CA_BUNDLE
+  # setzen (CA als ConfigMap/Secret mounten) statt dies auf "false" zu stellen.
+  BOOKSTACK_VERIFY_SSL: "true"

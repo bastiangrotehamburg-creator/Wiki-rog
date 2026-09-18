@@ -24,8 +24,12 @@ def cmd_test(cfg: Config) -> int:
     cfg.require_bookstack()
     print("→ Prüfe BookStack …")
     bs = BookStackClient(
-        cfg.bookstack_url, cfg.bookstack_token_id, cfg.bookstack_token_secret
+        cfg.bookstack_url,
+        cfg.bookstack_token_id,
+        cfg.bookstack_token_secret,
+        verify_ssl=cfg.bookstack_verify_ssl,
     )
+    print(f"  Wiki (extern): {cfg.bookstack_url}")
     print("  " + bs.test_connection())
 
     print("→ Prüfe Ollama …")

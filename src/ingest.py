@@ -20,7 +20,10 @@ def ingest(cfg: Config, reset: bool = False) -> dict:
     cfg.require_bookstack()
 
     bs = BookStackClient(
-        cfg.bookstack_url, cfg.bookstack_token_id, cfg.bookstack_token_secret
+        cfg.bookstack_url,
+        cfg.bookstack_token_id,
+        cfg.bookstack_token_secret,
+        verify_ssl=cfg.bookstack_verify_ssl,
     )
     ollama = OllamaClient(cfg.ollama_url)
     ollama.check()

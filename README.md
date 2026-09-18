@@ -126,11 +126,43 @@ kubectl -n wiki-rog port-forward svc/wiki-rog-app 8501:80
 **Optional**
 - `kubectl apply -f k8s/ingress.yaml` – Ingress (host/ingressClassName anpassen)
 - `kubectl apply -f k8s/ingest-cronjob.yaml` – tägliche Auto-Aktualisierung
+- `kubectl apply -f k8s/networkpolicy.yaml` – Egress zum externen Wiki (bei Default-Deny)
 
 **Kleines CPU-Modell:** Standard ist `llama3.2:1b` (~1,3 GB) + `nomic-embed-text`.
 Andere Modelle einfach in `k8s/configmap.yaml` (`OLLAMA_LLM_MODEL`) setzen und den
 `ollama-pull-models`-Job erneut ausführen. Für Ollama sind bewusst **keine**
 GPU-Ressourcen angefordert – es läuft rein auf der CPU.
+
+### Externes Wiki (außerhalb des Clusters)
+
+Das BookStack-Wiki wird **nicht** im Cluster betrieben – es bleibt extern. Im
+Cluster laufen nur App, Ollama und der Ingest-Job. Benötigt wird lediglich die
+**externe URL** (`BOOKSTACK_URL` in `k8s/configmap.yaml`) plus **Token**
+(`wiki-rog-secret`). Der Ingest-Job holt die Inhalte per HTTPS live von dort.
+
+Zu beachten:
+
+- **Egress:** Ingest-Job/App müssen nach außen zum Wiki (Port 443) dürfen. In
+  Clustern mit Default-Deny: `kubectl apply -f k8s/networkpolicy.yaml` (erlaubt
+  DNS, HTTPS nach außen und App↔Ollama). Liegt das Wiki in einem **privaten
+  Netz**, den `except`-Block in der Policy für dessen Subnetz anpassen.
+- **Öffentliches Zertifikat:** funktioniert ohne weitere Einstellungen.
+- **Private CA / internes Zertifikat:** CA als ConfigMap/Secret mounten und
+  `REQUESTS_CA_BUNDLE` auf den Pfad setzen – z. B.:
+  ```bash
+  kubectl -n wiki-rog create configmap wiki-ca --from-file=ca.crt=/pfad/ca.crt
+  ```
+  dann in `app.yaml`/`ingest-job.yaml` einen Volume-Mount `/certs` ergänzen und
+  in `configmap.yaml` `REQUESTS_CA_BUNDLE: "/certs/ca.crt"` setzen.
+- **Self-signed (Notlösung):** `BOOKSTACK_VERIFY_SSL: "false"` in
+  `k8s/configmap.yaml` – deaktiviert die TLS-Prüfung, nur wenn keine CA
+  verfügbar ist.
+
+Test der Verbindung aus dem Cluster heraus:
+```bash
+kubectl -n wiki-rog run bs-test --rm -it --restart=Never \
+  --image=wiki-rog:latest --command -- python cli.py test
+```
 
 ## Projektstruktur
 
@@ -160,6 +192,7 @@ Wiki-rog/
     ├── app.yaml              # Web-UI Deployment + Service
     ├── ingest-job.yaml       # einmaliger Ingest
     ├── ingest-cronjob.yaml   # optionale Auto-Aktualisierung
+    ├── networkpolicy.yaml    # optionaler Egress zum externen Wiki
     └── ingress.yaml          # optionaler Ingress
 ```
 

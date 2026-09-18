@@ -1,0 +1,72 @@
+# Optional – nur nötig, wenn im Cluster/Namespace eine Default-Deny-Policy gilt.
+# Erlaubt den wiki-rog-Pods den Zugriff auf das EXTERNE Wiki sowie das Laden
+# der Ollama-Modelle (beides über HTTPS/443) und DNS-Auflösung. App und Ollama
+# dürfen zusätzlich clusterintern miteinander reden.
+#
+# Anwenden mit:  kubectl apply -f k8s/networkpolicy.yaml
+# Voraussetzung: eine CNI mit NetworkPolicy-Unterstützung (Calico, Cilium, ...).
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: wiki-rog-egress
+  namespace: wiki-rog
+  labels:
+    app.kubernetes.io/part-of: wiki-rog
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: wiki-rog
+  policyTypes: ["Egress"]
+  egress:
+    # DNS-Auflösung (kube-dns)
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # HTTPS nach außen: externes Wiki + Modell-Downloads von Ollama
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            # private/interne Bereiche ausschließen (nur öffentliches Internet).
+            # Liegt DEIN externes Wiki in einem privaten Netz, den passenden
+            # Block unten entfernen bzw. das Wiki-Subnetz gezielt zulassen.
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80
+    # Clusterintern (App -> Ollama:11434 usw.)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: wiki-rog
+      ports:
+        - protocol: TCP
+          port: 11434
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: wiki-rog-app-ingress
+  namespace: wiki-rog
+  labels:
+    app.kubernetes.io/part-of: wiki-rog
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: wiki-rog-app
+  policyTypes: ["Ingress"]
+  ingress:
+    # Zugriff auf die Web-UI (port-forward oder Ingress-Controller).
+    # Bei Bedarf hier gezielt auf den Ingress-Namespace einschränken.
+    - ports:
+        - protocol: TCP
+          port: 8501
