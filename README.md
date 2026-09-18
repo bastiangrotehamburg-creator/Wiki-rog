@@ -18,6 +18,19 @@ BookStack ──REST──> Ingest ──Chunks──> Embeddings (Ollama) ─�
 Frage ──> Embedding ──> Ähnlichkeitssuche ──> Kontext ──> LLM (Ollama) ──> Antwort + Quellen
 ```
 
+## Screenshots
+
+Die Web-UI (`wiki-rog serve`) – schlichter Chat, Antworten mit Quellenangaben,
+Hell-/Dunkelmodus je nach System, responsiv bis Smartphone-Breite.
+
+| Desktop (dunkel) | Desktop (hell) |
+|---|---|
+| ![Desktop dunkel](docs/screenshots/desktop-dark.png) | ![Desktop hell](docs/screenshots/desktop-light.png) |
+
+| Mobil (hell) | Mobil (dunkel) |
+|---|---|
+| ![Mobil hell](docs/screenshots/mobile-light.png) | ![Mobil dunkel](docs/screenshots/mobile-dark.png) |
+
 ## Warum „lernt" es nur BookStack-Daten?
 
 Das Modell wird **nicht** trainiert. Bei jeder Frage wird relevanter Text aus dem
