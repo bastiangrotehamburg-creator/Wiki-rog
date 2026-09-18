@@ -23,6 +23,10 @@ Frage ──> Embedding ──> Ähnlichkeitssuche ──> Kontext ──> LLM (
 Die Web-UI (`wiki-rog serve`) – schlichter Chat im BookStack-Blau, Antworten mit
 Quellenangaben, Hell-/Dunkelmodus je nach System, responsiv bis Smartphone-Breite.
 
+| Login (hell) | Login (dunkel) |
+|---|---|
+| ![Login hell](docs/screenshots/login-light.png) | ![Login dunkel](docs/screenshots/login-dark.png) |
+
 | Startzustand (hell) | Startzustand (dunkel) |
 |---|---|
 | ![Start hell](docs/screenshots/empty-light.png) | ![Start dunkel](docs/screenshots/empty-dark.png) |
@@ -216,6 +220,59 @@ Hinweise:
   Internet" lässt sich mit einer `CiliumNetworkPolicy` per `toFQDNs` gezielt nur
   `registry.ollama.ai` freigeben. Sag Bescheid, dann liefere ich die Variante.
 
+### Zugriffsrechte: gruppenbasiertes Login (wie BookStack)
+
+Damit Nutzer nur die Inhalte sehen, für die sie berechtigt sind, gibt es ein
+**gruppenbasiertes Modell mit Login**:
+
+1. **Pro Gruppe eine Collection**, indexiert mit einem **eigenen BookStack-Token**
+   einer passend berechtigten Rolle. Da BookStack über die API nur erlaubte
+   Inhalte liefert, enthält jede Collection ausschließlich die für die Gruppe
+   sichtbaren Seiten. → Die Rechte bleiben in BookStack, werden nicht nachgebaut.
+2. **Login (Nutzer/Passwort)** in der WebUI. Jeder Nutzer ist Gruppen zugeordnet
+   und bekommt Antworten **nur** aus den Collections seiner Gruppen.
+3. Passwörter als **PBKDF2-Hash** (Go-Standardbibliothek), Session als signiertes
+   Cookie (HMAC). Ohne Access-Konfiguration läuft die WebUI **offen** (kein Login).
+
+**Einrichten (lokal):**
+```bash
+# Passwort-Hash je Nutzer erzeugen
+./wiki-rog hashpw 'MeinPasswort'
+# config/access.example.json -> config/access.json kopieren, Hashes + Gruppen eintragen
+export SESSION_SECRET="$(openssl rand -hex 32)"
+# Pro Gruppe mit dem jeweiligen Token indexieren:
+BOOKSTACK_TOKEN_ID=... BOOKSTACK_TOKEN_SECRET=... VECTOR_COLLECTION=bookstack-it ./wiki-rog ingest --reset
+BOOKSTACK_TOKEN_ID=... BOOKSTACK_TOKEN_SECRET=... VECTOR_COLLECTION=bookstack-hr ./wiki-rog ingest --reset
+./wiki-rog serve   # WebUI verlangt jetzt Login
+```
+
+**Einrichten (Kubernetes):**
+```bash
+# 1) Access-Secret (Login + Gruppen -> Collection) anlegen
+cp k8s/access-secret.example.yaml k8s/access-secret.yaml   # Hashes/SESSION_SECRET eintragen
+kubectl apply -f k8s/access-secret.yaml
+kubectl -n wiki-rog rollout restart deploy/wiki-rog-app     # aktiviert das Login
+
+# 2) Pro Gruppe ein BookStack-Token-Secret + Ingest-Job (siehe Datei)
+kubectl -n wiki-rog create secret generic wiki-rog-token-it  --from-literal=BOOKSTACK_TOKEN_ID=... --from-literal=BOOKSTACK_TOKEN_SECRET=...
+kubectl -n wiki-rog create secret generic wiki-rog-token-hr  --from-literal=BOOKSTACK_TOKEN_ID=... --from-literal=BOOKSTACK_TOKEN_SECRET=...
+kubectl apply -f k8s/ingest-groups-example.yaml
+```
+
+`access.json`-Format (Gruppen → Collection, Nutzer → Gruppen):
+```json
+{
+  "groups": { "it": {"collection": "bookstack-it"}, "hr": {"collection": "bookstack-hr"} },
+  "users":  [ {"username": "bob", "password_hash": "pbkdf2_sha256$...", "groups": ["it"]} ]
+}
+```
+
+Hinweise:
+- Die Granularität entspricht **deinen Gruppen** (nicht seitengenau pro Nutzer).
+  Für exakte Pro-Nutzer-Rechte wie in BookStack wäre Modell A (persönliches
+  Token je Nutzer) nötig – sag Bescheid, dann ergänze ich es.
+- Hinter HTTPS `SESSION_SECURE=true` setzen (Secure-Flag am Cookie).
+
 ## Projektstruktur
 
 ```
@@ -227,9 +284,11 @@ Wiki-rog/
 │   ├── chunk/                 # Text-Chunking (+ Tests)
 │   ├── ollama/                # Ollama (Embeddings + Chat, Streaming)
 │   ├── store/                 # Vektorspeicher: Interface + local + qdrant (+ Tests)
-│   ├── rag/                   # Retrieval + Antwortgenerierung
+│   ├── auth/                  # Login, Gruppen→Collection, PBKDF2, Sessions (+ Tests)
+│   ├── rag/                   # Retrieval (mehrere Collections) + Antwortgenerierung
 │   ├── ingest/               # Pipeline: fetch → chunk → embed → store
-│   └── webui/                 # HTTP-Server + eingebettete Chat-UI (SSE)
+│   └── webui/                 # HTTP-Server + Chat-UI + Login (SSE)
+├── config/access.example.json # Vorlage für Login/Gruppen
 ├── go.mod
 ├── Dockerfile                 # Multi-Stage Go-Build (distroless)
 ├── .env.example
@@ -238,6 +297,8 @@ Wiki-rog/
     ├── namespace.yaml
     ├── configmap.yaml         # Konfiguration + Backend-/Modellwahl
     ├── secret.example.yaml    # Vorlage für BookStack-Token
+    ├── access-secret.example.yaml   # Vorlage: Login/Gruppen + SESSION_SECRET
+    ├── ingest-groups-example.yaml   # gruppenweise Indexierung (je Token/Collection)
     ├── storage.yaml           # PVC für local-Backend
     ├── ollama.yaml            # Ollama-Deployment (CPU-only) + Service + PVC
     ├── ollama-pull-job.yaml   # lädt die Modelle in Ollama

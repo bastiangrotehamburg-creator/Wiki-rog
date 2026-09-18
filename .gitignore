@@ -9,8 +9,12 @@ data/
 *.test
 *.out
 
-# Kubernetes-Secret mit echten Zugangsdaten (nur secret.example.yaml einchecken)
+# Kubernetes-Secret mit echten Zugangsdaten (nur *.example.yaml einchecken)
 k8s/secret.yaml
+k8s/access-secret.yaml
+
+# Echte Access-Konfiguration (nur access.example.json einchecken)
+config/access.json
 
 # OS / Editor
 .DS_Store

@@ -34,9 +34,20 @@ spec:
                 name: wiki-rog-config
             - secretRef:
                 name: wiki-rog-secret
+          env:
+            # Session-Signaturschlüssel; optional -> ohne Secret bleibt Auth aus.
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: wiki-rog-access
+                  key: SESSION_SECRET
+                  optional: true
           volumeMounts:
             - name: store
               mountPath: /data
+            - name: access
+              mountPath: /etc/wiki-rog
+              readOnly: true
           resources:
             requests:
               cpu: "50m"
@@ -60,6 +71,15 @@ spec:
         - name: store
           persistentVolumeClaim:
             claimName: store-data
+        # Access-Konfiguration (Login/Gruppen); optional -> fehlt sie, läuft
+        # die WebUI offen. Zum Aktivieren: Secret wiki-rog-access anlegen.
+        - name: access
+          secret:
+            secretName: wiki-rog-access
+            optional: true
+            items:
+              - key: access.json
+                path: access.json
 ---
 apiVersion: v1
 kind: Service

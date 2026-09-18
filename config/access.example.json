@@ -1,0 +1,20 @@
+{
+  "_hinweis": "Kopiere nach config/access.json. Passwort-Hashes mit 'wiki-rog hashpw' erzeugen. Ist keine access.json vorhanden, läuft die WebUI offen (kein Login).",
+  "groups": {
+    "all": { "collection": "bookstack-all" },
+    "it":  { "collection": "bookstack-it" },
+    "hr":  { "collection": "bookstack-hr" }
+  },
+  "users": [
+    {
+      "username": "alice",
+      "password_hash": "pbkdf2_sha256$210000$ERSETZEN$ERSETZEN",
+      "groups": ["hr", "all"]
+    },
+    {
+      "username": "bob",
+      "password_hash": "pbkdf2_sha256$210000$ERSETZEN$ERSETZEN",
+      "groups": ["it", "all"]
+    }
+  ]
+}

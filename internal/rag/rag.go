@@ -1,10 +1,12 @@
 // Package rag verbindet Retrieval (Vektorspeicher) mit der Antwortgenerierung.
-// Es wird ausschließlich der abgerufene BookStack-Kontext genutzt.
+// Es wird ausschließlich der abgerufene BookStack-Kontext genutzt; die Suche
+// läuft über eine oder mehrere Collections (gruppenbasierter Zugriff).
 package rag
 
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"wiki-rog/internal/config"
@@ -26,30 +28,44 @@ const NoContextMsg = "Dazu finde ich nichts im Wiki."
 type Engine struct {
 	cfg    config.Config
 	ollama *ollama.Client
-	store  store.Store
+	mgr    *store.Manager
 }
 
-func New(cfg config.Config, oc *ollama.Client, st store.Store) *Engine {
-	return &Engine{cfg: cfg, ollama: oc, store: st}
+func New(cfg config.Config, oc *ollama.Client, mgr *store.Manager) *Engine {
+	return &Engine{cfg: cfg, ollama: oc, mgr: mgr}
 }
 
-// Retrieve holt die relevanten Chunks (nach Distanzschwelle gefiltert).
-func (e *Engine) Retrieve(ctx context.Context, question string) ([]store.Result, error) {
+// Retrieve durchsucht die angegebenen Collections und liefert die relevantesten
+// Chunks (nach Distanzschwelle gefiltert, über alle Collections zusammengeführt).
+func (e *Engine) Retrieve(ctx context.Context, question string, collections []string) ([]store.Result, error) {
+	if len(collections) == 0 {
+		return nil, nil
+	}
 	emb, err := e.ollama.Embed(ctx, e.cfg.OllamaEmbedModel, question)
 	if err != nil {
 		return nil, err
 	}
-	hits, err := e.store.Query(ctx, emb, e.cfg.RetrievalTopK)
-	if err != nil {
-		return nil, err
-	}
-	out := hits[:0]
-	for _, h := range hits {
-		if h.Distance <= e.cfg.RetrievalMaxDistance {
-			out = append(out, h)
+	var all []store.Result
+	for _, coll := range collections {
+		st, err := e.mgr.Get(coll)
+		if err != nil {
+			return nil, err
+		}
+		hits, err := st.Query(ctx, emb, e.cfg.RetrievalTopK)
+		if err != nil {
+			return nil, err
+		}
+		for _, h := range hits {
+			if h.Distance <= e.cfg.RetrievalMaxDistance {
+				all = append(all, h)
+			}
 		}
 	}
-	return out, nil
+	sort.SliceStable(all, func(i, j int) bool { return all[i].Distance < all[j].Distance })
+	if len(all) > e.cfg.RetrievalTopK {
+		all = all[:e.cfg.RetrievalTopK]
+	}
+	return all, nil
 }
 
 func buildContext(chunks []store.Result) string {
@@ -69,8 +85,8 @@ func (e *Engine) userPrompt(question string, chunks []store.Result) string {
 }
 
 // Answer liefert die vollständige Antwort inkl. Quellen.
-func (e *Engine) Answer(ctx context.Context, question string) (string, []store.Result, error) {
-	chunks, err := e.Retrieve(ctx, question)
+func (e *Engine) Answer(ctx context.Context, question string, collections []string) (string, []store.Result, error) {
+	chunks, err := e.Retrieve(ctx, question, collections)
 	if err != nil {
 		return "", nil, err
 	}
@@ -84,9 +100,9 @@ func (e *Engine) Answer(ctx context.Context, question string) (string, []store.R
 	return text, chunks, nil
 }
 
-// AnswerStream streamt die Antwort token-weise über onToken und gibt die Quellen zurück.
-func (e *Engine) AnswerStream(ctx context.Context, question string, onToken func(string)) ([]store.Result, error) {
-	chunks, err := e.Retrieve(ctx, question)
+// AnswerStream streamt die Antwort token-weise und gibt die Quellen zurück.
+func (e *Engine) AnswerStream(ctx context.Context, question string, collections []string, onToken func(string)) ([]store.Result, error) {
+	chunks, err := e.Retrieve(ctx, question, collections)
 	if err != nil {
 		return nil, err
 	}

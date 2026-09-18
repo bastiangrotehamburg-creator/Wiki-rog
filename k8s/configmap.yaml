@@ -31,6 +31,13 @@ data:
   # --- Web-Server -----------------------------------------------------------
   HTTP_ADDR: ":8080"
 
+  # --- Zugriff / Login (gruppenbasiert) -------------------------------------
+  # Existiert das Secret wiki-rog-access (mit access.json) nicht, läuft die
+  # WebUI OFFEN (kein Login). Mit Secret: Login + gruppenbasierte Collections.
+  ACCESS_CONFIG: "/etc/wiki-rog/access.json"
+  SESSION_TTL_HOURS: "12"
+  SESSION_SECURE: "false"   # auf "true" setzen, wenn hinter HTTPS/Ingress
+
   # --- BookStack (EXTERN, außerhalb des Clusters) ---------------------------
   # Externe URL des Wikis eintragen. Token in wiki-rog-secret.
   # Ingest-Job/App brauchen dafür Egress nach außen (siehe networkpolicy.yaml).

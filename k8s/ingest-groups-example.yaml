@@ -1,0 +1,99 @@
+# Gruppenbasierte Indexierung: pro Gruppe ein Ingest-Job mit EIGENEM
+# BookStack-Token (das nur sieht, was die Rolle darf) und EIGENER Collection.
+# So enthält jede Collection ausschließlich die für die Gruppe erlaubten Inhalte.
+#
+# Vorgehen:
+#   1) Pro Gruppe ein BookStack-API-Token einer passend berechtigten Rolle
+#      als Secret anlegen, z. B.:
+#        kubectl -n wiki-rog create secret generic wiki-rog-token-it \
+#          --from-literal=BOOKSTACK_TOKEN_ID=... \
+#          --from-literal=BOOKSTACK_TOKEN_SECRET=...
+#   2) Collection-Namen müssen zu k8s/access-secret.yaml (groups[].collection) passen.
+#   3) Jobs anwenden: kubectl apply -f k8s/ingest-groups-example.yaml
+#      (erneut ausführen zum Aktualisieren: Jobs vorher löschen)
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wiki-rog-ingest-it
+  namespace: wiki-rog
+  labels:
+    app.kubernetes.io/name: wiki-rog-ingest
+    app.kubernetes.io/part-of: wiki-rog
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: wiki-rog-ingest
+        app.kubernetes.io/part-of: wiki-rog
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: ingest
+          image: wiki-rog:latest
+          imagePullPolicy: IfNotPresent
+          args: ["ingest", "--reset"]
+          envFrom:
+            - configMapRef:
+                name: wiki-rog-config      # Basis (Ollama, Chunking, BOOKSTACK_URL)
+          env:
+            - name: VECTOR_COLLECTION
+              value: "bookstack-it"        # muss zu access.json passen
+            - name: BOOKSTACK_TOKEN_ID
+              valueFrom:
+                secretKeyRef: { name: wiki-rog-token-it, key: BOOKSTACK_TOKEN_ID }
+            - name: BOOKSTACK_TOKEN_SECRET
+              valueFrom:
+                secretKeyRef: { name: wiki-rog-token-it, key: BOOKSTACK_TOKEN_SECRET }
+          volumeMounts:
+            - name: store
+              mountPath: /data
+      volumes:
+        - name: store
+          persistentVolumeClaim:
+            claimName: store-data
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wiki-rog-ingest-hr
+  namespace: wiki-rog
+  labels:
+    app.kubernetes.io/name: wiki-rog-ingest
+    app.kubernetes.io/part-of: wiki-rog
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: wiki-rog-ingest
+        app.kubernetes.io/part-of: wiki-rog
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: ingest
+          image: wiki-rog:latest
+          imagePullPolicy: IfNotPresent
+          args: ["ingest", "--reset"]
+          envFrom:
+            - configMapRef:
+                name: wiki-rog-config
+          env:
+            - name: VECTOR_COLLECTION
+              value: "bookstack-hr"
+            - name: BOOKSTACK_TOKEN_ID
+              valueFrom:
+                secretKeyRef: { name: wiki-rog-token-hr, key: BOOKSTACK_TOKEN_ID }
+            - name: BOOKSTACK_TOKEN_SECRET
+              valueFrom:
+                secretKeyRef: { name: wiki-rog-token-hr, key: BOOKSTACK_TOKEN_SECRET }
+          volumeMounts:
+            - name: store
+              mountPath: /data
+      volumes:
+        - name: store
+          persistentVolumeClaim:
+            claimName: store-data

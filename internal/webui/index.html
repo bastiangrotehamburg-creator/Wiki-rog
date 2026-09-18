@@ -31,6 +31,11 @@
   .brand svg { flex: none; }
   .brand h1 { margin: 0; font-size: 18px; letter-spacing: -.2px; }
   .brand p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+  .logout { display: none; margin-left: auto; align-self: center; font-size: 13px;
+    color: var(--accent); text-decoration: none; border: 1px solid var(--border);
+    padding: 6px 12px; border-radius: 8px; white-space: nowrap; }
+  .logout:hover { border-color: var(--accent); }
+  body[data-auth="1"] .logout { display: inline-block; }
   main { max-width: 820px; margin: 0 auto; padding: 16px; }
   #chat { display: flex; flex-direction: column; gap: 14px; padding-bottom: 110px; }
   .msg { padding: 12px 14px; border-radius: 14px; line-height: 1.55;
@@ -64,7 +69,7 @@
   button:disabled { opacity: .6; cursor: default; }
 </style>
 </head>
-<body>
+<body data-auth="0">
 <header>
   <div class="brand">
     <svg width="34" height="34" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -77,6 +82,7 @@
       <h1>Wiki-rog</h1>
       <p>Fragen zum BookStack-Wiki – lokal via Ollama, Antworten nur aus dem Wiki.</p>
     </div>
+    <a class="logout" id="logout" href="/logout">Abmelden</a>
   </div>
 </header>
 <main>

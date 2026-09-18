@@ -1,36 +1,62 @@
 // Package webui stellt die Chat-Weboberfläche und die HTTP-API bereit.
+// Bei aktivierter Auth (auth.Service != nil) gibt es Login + gruppenbasierte
+// Collections; sonst läuft die UI offen mit den Standard-Collections.
 package webui
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
 	"encoding/json"
 	"fmt"
 	"net/http"
 
+	"wiki-rog/internal/auth"
 	"wiki-rog/internal/rag"
 )
 
 //go:embed index.html
 var indexHTML []byte
 
+//go:embed login.html
+var loginHTML []byte
+
 type Server struct {
-	engine *rag.Engine
+	engine   *rag.Engine
+	auth     *auth.Service // nil = Auth deaktiviert
+	defaults []string      // Collections im offenen Modus
 }
 
-func New(engine *rag.Engine) *Server {
-	return &Server{engine: engine}
+// New erstellt den Server. authSvc darf nil sein (offener Modus).
+func New(engine *rag.Engine, authSvc *auth.Service, defaultCollections []string) *Server {
+	return &Server{engine: engine, auth: authSvc, defaults: defaultCollections}
 }
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", s.handleIndex)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
+	mux.HandleFunc("/login", s.handleLogin)
+	mux.HandleFunc("/logout", s.handleLogout)
+	mux.HandleFunc("/", s.handleIndex)
 	mux.HandleFunc("/api/ask", s.handleAsk)
 	return mux
+}
+
+func (s *Server) authEnabled() bool { return s.auth != nil }
+
+// collectionsForRequest ermittelt die erlaubten Collections der Anfrage.
+func (s *Server) collectionsForRequest(r *http.Request) ([]string, bool) {
+	if !s.authEnabled() {
+		return s.defaults, true
+	}
+	sess, ok := s.auth.SessionFrom(r)
+	if !ok {
+		return nil, false
+	}
+	return s.auth.CollectionsFor(sess.Groups), true
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -38,12 +64,59 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	page := indexHTML
+	if s.authEnabled() {
+		if _, ok := s.auth.SessionFrom(r); !ok {
+			http.Redirect(w, r, "/login", http.StatusFound)
+			return
+		}
+		// Abmelden-Link einblenden
+		page = bytes.Replace(indexHTML, []byte(`data-auth="0"`), []byte(`data-auth="1"`), 1)
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write(indexHTML)
+	_, _ = w.Write(page)
+}
+
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if !s.authEnabled() {
+		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write(loginHTML)
+	case http.MethodPost:
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "ungültige Anfrage", http.StatusBadRequest)
+			return
+		}
+		user, ok := s.auth.Authenticate(r.PostFormValue("username"), r.PostFormValue("password"))
+		if !ok {
+			http.Redirect(w, r, "/login?e=1", http.StatusFound)
+			return
+		}
+		http.SetCookie(w, s.auth.IssueCookie(user))
+		http.Redirect(w, r, "/", http.StatusFound)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if s.authEnabled() {
+		http.SetCookie(w, s.auth.ClearCookie())
+	}
+	http.Redirect(w, r, "/login", http.StatusFound)
 }
 
 // handleAsk streamt die Antwort als Server-Sent Events.
 func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
+	collections, ok := s.collectionsForRequest(r)
+	if !ok {
+		http.Error(w, "nicht angemeldet", http.StatusUnauthorized)
+		return
+	}
 	question := r.URL.Query().Get("q")
 	if question == "" {
 		http.Error(w, "Parameter q fehlt", http.StatusBadRequest)
@@ -64,8 +137,7 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 	}
 
-	ctx := r.Context()
-	sources, err := s.engine.AnswerStream(ctx, question, func(tok string) {
+	sources, err := s.engine.AnswerStream(r.Context(), question, collections, func(tok string) {
 		send("token", tok)
 	})
 	if err != nil {
@@ -78,7 +150,7 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 }
 
 // Serve startet den HTTP-Server (blockierend).
-func Serve(_ context.Context, addr string, engine *rag.Engine) error {
-	srv := &http.Server{Addr: addr, Handler: New(engine).Handler()}
+func Serve(_ context.Context, addr string, engine *rag.Engine, authSvc *auth.Service, defaultCollections []string) error {
+	srv := &http.Server{Addr: addr, Handler: New(engine, authSvc, defaultCollections).Handler()}
 	return srv.ListenAndServe()
 }

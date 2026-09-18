@@ -17,6 +17,7 @@ import (
 	"os"
 	"strings"
 
+	"wiki-rog/internal/auth"
 	"wiki-rog/internal/bookstack"
 	"wiki-rog/internal/config"
 	"wiki-rog/internal/ingest"
@@ -46,6 +47,8 @@ func main() {
 		err = cmdChat(ctx, cfg)
 	case "serve":
 		err = cmdServe(ctx, cfg)
+	case "hashpw":
+		err = cmdHashpw(os.Args[2:])
 	case "-h", "--help", "help":
 		usage()
 		return
@@ -69,6 +72,7 @@ Verwendung:
   wiki-rog ask "<Frage>"      einzelne Frage stellen
   wiki-rog chat               interaktiver Chat im Terminal
   wiki-rog serve              Web-UI starten (HTTP)
+  wiki-rog hashpw [passwort]  Passwort-Hash für die Access-Konfig erzeugen
 `)
 }
 
@@ -136,12 +140,9 @@ func cmdIngest(ctx context.Context, cfg config.Config, args []string) error {
 	return nil
 }
 
-func newEngine(cfg config.Config) (*rag.Engine, store.Store, error) {
-	st, err := store.Open(cfg)
-	if err != nil {
-		return nil, nil, err
-	}
-	return rag.New(cfg, ollama.New(cfg.OllamaURL), st), st, nil
+func newEngine(cfg config.Config) (*rag.Engine, *store.Manager) {
+	mgr := store.NewManager(cfg)
+	return rag.New(cfg, ollama.New(cfg.OllamaURL), mgr), mgr
 }
 
 func cmdAsk(ctx context.Context, cfg config.Config, args []string) error {
@@ -149,13 +150,10 @@ func cmdAsk(ctx context.Context, cfg config.Config, args []string) error {
 	if question == "" {
 		return fmt.Errorf("bitte eine Frage angeben: wiki-rog ask \"...\"")
 	}
-	engine, st, err := newEngine(cfg)
-	if err != nil {
-		return err
-	}
-	defer st.Close()
+	engine, mgr := newEngine(cfg)
+	defer mgr.Close()
 
-	sources, err := engine.AnswerStream(ctx, question, func(tok string) {
+	sources, err := engine.AnswerStream(ctx, question, []string{cfg.VectorCollection}, func(tok string) {
 		fmt.Print(tok)
 	})
 	if err != nil {
@@ -167,11 +165,9 @@ func cmdAsk(ctx context.Context, cfg config.Config, args []string) error {
 }
 
 func cmdChat(ctx context.Context, cfg config.Config) error {
-	engine, st, err := newEngine(cfg)
-	if err != nil {
-		return err
-	}
-	defer st.Close()
+	engine, mgr := newEngine(cfg)
+	defer mgr.Close()
+	collections := []string{cfg.VectorCollection}
 
 	fmt.Println("Wiki-Chat (nur BookStack-Wissen). 'exit' zum Beenden.")
 	fmt.Println()
@@ -189,7 +185,7 @@ func cmdChat(ctx context.Context, cfg config.Config) error {
 			return nil
 		}
 		fmt.Print("Wiki: ")
-		sources, err := engine.AnswerStream(ctx, question, func(tok string) {
+		sources, err := engine.AnswerStream(ctx, question, collections, func(tok string) {
 			fmt.Print(tok)
 		})
 		if err != nil {
@@ -204,13 +200,43 @@ func cmdChat(ctx context.Context, cfg config.Config) error {
 }
 
 func cmdServe(ctx context.Context, cfg config.Config) error {
-	engine, st, err := newEngine(cfg)
+	engine, mgr := newEngine(cfg)
+	defer mgr.Close()
+
+	authSvc, err := auth.Load(cfg.AccessConfig, cfg.SessionSecret, cfg.SessionTTLHours, cfg.SessionSecure)
 	if err != nil {
 		return err
 	}
-	defer st.Close()
-	fmt.Printf("Wiki-rog Web-UI läuft auf %s (Backend: %s)\n", cfg.HTTPAddr, cfg.VectorBackend)
-	return webui.Serve(ctx, cfg.HTTPAddr, engine)
+	mode := "offen (kein Login, eine Collection)"
+	if authSvc != nil {
+		mode = "Login + gruppenbasierter Zugriff"
+	}
+	fmt.Printf("Wiki-rog Web-UI läuft auf %s (Backend: %s, Zugriff: %s)\n",
+		cfg.HTTPAddr, cfg.VectorBackend, mode)
+	return webui.Serve(ctx, cfg.HTTPAddr, engine, authSvc, []string{cfg.VectorCollection})
+}
+
+func cmdHashpw(args []string) error {
+	var pw string
+	if len(args) > 0 {
+		pw = args[0]
+	} else {
+		fmt.Print("Passwort: ")
+		sc := bufio.NewScanner(os.Stdin)
+		if sc.Scan() {
+			pw = sc.Text()
+		}
+	}
+	pw = strings.TrimSpace(pw)
+	if pw == "" {
+		return fmt.Errorf("leeres Passwort")
+	}
+	h, err := auth.HashPassword(pw)
+	if err != nil {
+		return err
+	}
+	fmt.Println(h)
+	return nil
 }
 
 func printSources(sources []store.Result) {

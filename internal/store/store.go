@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sync"
 
 	"wiki-rog/internal/config"
 )
@@ -47,16 +48,58 @@ type Store interface {
 	Close() error
 }
 
-// Open erstellt das in der Config gewählte Backend.
+// Open erstellt das in der Config gewählte Backend für die Standard-Collection.
 func Open(cfg config.Config) (Store, error) {
+	return OpenCollection(cfg, cfg.VectorCollection)
+}
+
+// OpenCollection erstellt das Backend für eine bestimmte Collection.
+func OpenCollection(cfg config.Config, collection string) (Store, error) {
 	switch cfg.VectorBackend {
 	case "", "local":
-		return openLocal(cfg.StoreDir, cfg.VectorCollection)
+		return openLocal(cfg.StoreDir, collection)
 	case "qdrant":
-		return openQdrant(cfg.QdrantURL, cfg.QdrantAPIKey, cfg.VectorCollection), nil
+		return openQdrant(cfg.QdrantURL, cfg.QdrantAPIKey, collection), nil
 	default:
 		return nil, fmt.Errorf("unbekanntes VECTOR_BACKEND %q (erlaubt: local, qdrant)", cfg.VectorBackend)
 	}
+}
+
+// Manager öffnet und cached Stores je Collection (für gruppenbasierten Zugriff).
+type Manager struct {
+	cfg   config.Config
+	mu    sync.Mutex
+	cache map[string]Store
+}
+
+// NewManager erstellt einen Collection-Manager.
+func NewManager(cfg config.Config) *Manager {
+	return &Manager{cfg: cfg, cache: map[string]Store{}}
+}
+
+// Get liefert (und cached) den Store einer Collection.
+func (m *Manager) Get(collection string) (Store, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if st, ok := m.cache[collection]; ok {
+		return st, nil
+	}
+	st, err := OpenCollection(m.cfg, collection)
+	if err != nil {
+		return nil, err
+	}
+	m.cache[collection] = st
+	return st, nil
+}
+
+// Close schließt alle geöffneten Stores.
+func (m *Manager) Close() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, st := range m.cache {
+		_ = st.Close()
+	}
+	m.cache = map[string]Store{}
 }
 
 // cosineDistance = 1 - Cosine-Ähnlichkeit (0 = identisch, 1 = orthogonal).
