@@ -1,0 +1,20 @@
+# Secrets
+.env
+
+# Vektorspeicher / lokale Daten
+data/
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+
+# OS / Editor
+.DS_Store
+.idea/
+.vscode/
