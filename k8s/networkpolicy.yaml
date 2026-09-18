@@ -209,3 +209,42 @@ spec:
         - protocol: TCP
           port: 6333
   # egress: leer -> Qdrant darf nichts nach außen senden.
+---
+# 8) WIREGUARD (Dev-VPN-Gateway, optional): Egress zum VPN-Server (UDP) und zur
+#    App (socat -> 8080). Wirkt nur, wenn k8s/wireguard.yaml deployt ist.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: wireguard-netpol
+  namespace: wiki-rog
+  labels:
+    app.kubernetes.io/name: wireguard
+    app.kubernetes.io/part-of: wiki-rog
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: wireguard
+  policyTypes: ["Egress"]
+  egress:
+    # DNS (App-Service + Server-Endpoint auflösen)
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Tunnel zum VPN-Server (UDP). Bei Bedarf CIDR/Port einschränken.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: UDP
+    # Weiterleitung zur WebUI
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: wiki-rog-app
+      ports:
+        - protocol: TCP
+          port: 8080

@@ -12,6 +12,7 @@ data/
 # Kubernetes-Secret mit echten Zugangsdaten (nur *.example.yaml einchecken)
 k8s/secret.yaml
 k8s/access-secret.yaml
+k8s/wireguard-secret.yaml
 
 # Echte Access-Konfiguration (nur access.example.json einchecken)
 config/access.json

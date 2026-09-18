@@ -1,0 +1,88 @@
+# ===========================================================================
+# WireGuard-Client als VPN-Gateway zur WebUI  –  NUR FÜR DEV-BETRIEB
+#
+# Ein Pod, zwei Container:
+#   - wireguard: baut den Tunnel zu DEINEM VPN-Server auf (Config aus Secret)
+#   - forward:   leitet <Tunnel-IP>:8080 -> Service wiki-rog-app:80 (socat)
+#
+# Zugriff: von einem anderen Gerät im selben VPN -> http://<CLIENT-TUNNEL-IP>:8080
+#
+# Voraussetzungen:
+#   1) Secret mit der Client-Config anlegen (siehe wireguard-secret.example.yaml):
+#        cp k8s/wireguard-secret.example.yaml k8s/wireguard-secret.yaml  # ausfüllen
+#        kubectl apply -f k8s/wireguard-secret.yaml
+#   2) Auf dem VPN-SERVER muss die AllowedIPs dieses Clients dessen Tunnel-IP
+#      enthalten, damit andere Peers den Client (und damit die WebUI) erreichen.
+#   3) WireGuard-Kernelmodul auf dem Node (Kernel >= 5.6 hat es i. d. R.).
+#
+# Hinweis: der wireguard-Container läuft privilegiert – bewusst nur für Dev.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wireguard
+  namespace: wiki-rog
+  labels:
+    app.kubernetes.io/name: wireguard
+    app.kubernetes.io/part-of: wiki-rog
+    app.kubernetes.io/component: dev-vpn
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: wireguard
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: wireguard
+        app.kubernetes.io/part-of: wiki-rog
+        app.kubernetes.io/component: dev-vpn
+    spec:
+      containers:
+        # --- Tunnel zum VPN-Server ---------------------------------------
+        - name: wireguard
+          image: lscr.io/linuxserver/wireguard:latest
+          securityContext:
+            privileged: true          # DEV: einfachster, zuverlässigster Weg
+          env:
+            - name: PUID
+              value: "1000"
+            - name: PGID
+              value: "1000"
+            - name: TZ
+              value: "Europe/Berlin"
+          volumeMounts:
+            - name: config          # beschreibbares /config (linuxserver-Image)
+              mountPath: /config
+            - name: wg-conf         # deine Client-Config als wg0.conf
+              mountPath: /config/wg_confs
+              readOnly: true
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+        # --- Portweiterleitung Tunnel -> WebUI ---------------------------
+        - name: forward
+          image: alpine/socat:latest
+          args:
+            - "TCP-LISTEN:8080,fork,reuseaddr"
+            - "TCP:wiki-rog-app.wiki-rog.svc.cluster.local:80"
+          resources:
+            requests:
+              cpu: "20m"
+              memory: "16Mi"
+            limits:
+              cpu: "200m"
+              memory: "64Mi"
+      volumes:
+        - name: config
+          emptyDir: {}
+        - name: wg-conf
+          secret:
+            secretName: wireguard-config
+            items:
+              - key: wg0.conf
+                path: wg0.conf

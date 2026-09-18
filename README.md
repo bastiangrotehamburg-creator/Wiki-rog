@@ -220,6 +220,38 @@ Hinweise:
   Internet" lässt sich mit einer `CiliumNetworkPolicy` per `toFQDNs` gezielt nur
   `registry.ollama.ai` freigeben. Sag Bescheid, dann liefere ich die Variante.
 
+### Dev-Zugang über WireGuard (VPN)
+
+Für den **Dev-Betrieb** kannst du die WebUI über deinen bestehenden
+WireGuard-VPN erreichbar machen – ohne Ingress/LoadBalancer/port-forward.
+`k8s/wireguard.yaml` startet einen Pod, der sich als **Client** mit deinem
+VPN-Server verbindet und den Tunnel-Port 8080 an den `wiki-rog-app`-Service
+weiterleitet (WireGuard-Container + socat).
+
+```bash
+# 1) Client-Config als Secret anlegen (privater Key, Server-Endpoint, Tunnel-IP)
+cp k8s/wireguard-secret.example.yaml k8s/wireguard-secret.yaml   # ausfüllen
+kubectl apply -f k8s/wireguard-secret.yaml
+
+# 2) VPN-Gateway starten
+kubectl apply -f k8s/wireguard.yaml
+kubectl -n wiki-rog logs deploy/wireguard -c wireguard   # Handshake prüfen
+```
+
+Danach von einem **anderen Gerät im selben VPN**:
+```
+http://<CLIENT-TUNNEL-IP>:8080      # z. B. http://10.13.13.2:8080
+```
+
+Wichtig:
+- Auf deinem **VPN-Server** muss der `AllowedIPs`-Eintrag dieses Clients dessen
+  Tunnel-IP enthalten, damit andere Peers ihn (und die WebUI) erreichen.
+- Der WireGuard-Container läuft **privilegiert** – das ist bewusst nur für den
+  Dev-Betrieb gedacht; nicht für Produktion verwenden.
+- Bei aktiver Netzwerk-Isolation deckt `wireguard-netpol` (in
+  `k8s/networkpolicy.yaml`) den nötigen Egress ab.
+- Der WireGuard-Kernelmodul muss auf dem Node vorhanden sein (Kernel ≥ 5.6).
+
 ### Zugriffsrechte: gruppenbasiertes Login (wie BookStack)
 
 Damit Nutzer nur die Inhalte sehen, für die sie berechtigt sind, gibt es ein
@@ -306,7 +338,9 @@ Wiki-rog/
     ├── ingest-job.yaml        # einmaliger Ingest
     ├── ingest-cronjob.yaml    # optionale Auto-Aktualisierung
     ├── qdrant.yaml            # optionales Qdrant-Backend
-    ├── networkpolicy.yaml     # optionaler Egress zum externen Wiki
+    ├── networkpolicy.yaml     # Netzwerk-Isolation (Ollama abschotten)
+    ├── wireguard.yaml         # optionaler Dev-VPN-Zugang (WireGuard-Client)
+    ├── wireguard-secret.example.yaml  # Vorlage für die WG-Client-Config
     └── ingress.yaml           # optionaler Ingress
 ```
 
