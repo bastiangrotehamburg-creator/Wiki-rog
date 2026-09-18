@@ -1,4 +1,4 @@
-# Wiki-rog Web-UI (Streamlit) + Service
+# Wiki-rog Web-UI (Go-Binary, Befehl "serve") + Service
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -25,8 +25,9 @@ spec:
         - name: app
           image: wiki-rog:latest       # eigenes Image bauen & pushen (siehe README)
           imagePullPolicy: IfNotPresent
+          args: ["serve"]
           ports:
-            - containerPort: 8501
+            - containerPort: 8080
               name: http
           envFrom:
             - configMapRef:
@@ -34,31 +35,31 @@ spec:
             - secretRef:
                 name: wiki-rog-secret
           volumeMounts:
-            - name: chroma
+            - name: store
               mountPath: /data
           resources:
             requests:
-              cpu: "100m"
-              memory: "256Mi"
+              cpu: "50m"
+              memory: "64Mi"
             limits:
-              cpu: "1"
-              memory: "1Gi"
+              cpu: "500m"
+              memory: "512Mi"
           readinessProbe:
             httpGet:
-              path: /_stcore/health
-              port: 8501
-            initialDelaySeconds: 10
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 3
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /_stcore/health
-              port: 8501
-            initialDelaySeconds: 30
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
             periodSeconds: 30
       volumes:
-        - name: chroma
+        - name: store
           persistentVolumeClaim:
-            claimName: chroma-data
+            claimName: store-data
 ---
 apiVersion: v1
 kind: Service
@@ -73,5 +74,5 @@ spec:
     app.kubernetes.io/name: wiki-rog-app
   ports:
     - port: 80
-      targetPort: 8501
+      targetPort: 8080
       name: http

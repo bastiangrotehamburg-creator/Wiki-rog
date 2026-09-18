@@ -1,6 +1,0 @@
-# Wiki-rog – lokales RAG über BookStack-Daten
-requests>=2.31.0
-chromadb>=0.5.0
-python-dotenv>=1.0.0
-tqdm>=4.66.0
-streamlit>=1.36.0

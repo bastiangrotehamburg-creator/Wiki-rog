@@ -43,7 +43,7 @@ spec:
           port: 443
         - protocol: TCP
           port: 80
-    # Clusterintern (App -> Ollama:11434 usw.)
+    # Clusterintern (App/Ingest -> Ollama:11434 und -> Qdrant:6333)
     - to:
         - podSelector:
             matchLabels:
@@ -51,6 +51,8 @@ spec:
       ports:
         - protocol: TCP
           port: 11434
+        - protocol: TCP
+          port: 6333
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -69,4 +71,4 @@ spec:
     # Bei Bedarf hier gezielt auf den Ingress-Namespace einschränken.
     - ports:
         - protocol: TCP
-          port: 8501
+          port: 8080

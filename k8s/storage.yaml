@@ -1,14 +1,15 @@
-# Persistenter Vektorspeicher (ChromaDB), geteilt von App (lesend) und
-# Ingest-Job (schreibend).
+# Persistenter Vektorspeicher (Backend "local"), geteilt von App (lesend) und
+# Ingest-Job (schreibend). Bei Backend "qdrant" wird dieses PVC nicht genutzt.
 #
 # HINWEIS: ReadWriteOnce funktioniert im Einzelknoten-Cluster problemlos.
 # Bei mehreren Knoten müssen App-Pod und Ingest-Job auf demselben Knoten
 # laufen – oder nutze eine ReadWriteMany-fähige StorageClass (z. B. NFS)
-# und setze accessModes unten auf ["ReadWriteMany"].
+# und setze accessModes unten auf ["ReadWriteMany"]. Alternativ das
+# Qdrant-Backend verwenden (dann teilen sich beide keinen Dateispeicher).
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: chroma-data
+  name: store-data
   namespace: wiki-rog
   labels:
     app.kubernetes.io/part-of: wiki-rog

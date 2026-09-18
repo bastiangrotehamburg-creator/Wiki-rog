@@ -1,86 +1,99 @@
 # 📚 Wiki-rog
 
-Ein **lokales RAG-System** (Retrieval-Augmented Generation), das ausschließlich
-das Wissen aus einem **BookStack-Wiki** nutzt. Alles läuft lokal über
-[Ollama](https://ollama.com) – es verlassen keine Daten den Server.
+Ein **lokales RAG-System** (Retrieval-Augmented Generation) in **Go**, das
+ausschließlich das Wissen aus einem **externen BookStack-Wiki** nutzt. Antworten
+und Embeddings laufen lokal über [Ollama](https://ollama.com) – es verlassen
+keine Daten den Server (außer den API-Aufrufen an dein eigenes Wiki).
 
+- **Sprache:** Go (nur Standardbibliothek, keine externen Module)
 - **Datenquelle:** BookStack REST-API (nur diese Inhalte werden „gelernt")
-- **Embeddings & LLM:** lokal via Ollama
-- **Vektorspeicher:** ChromaDB (persistent auf der Platte)
+- **Embeddings & LLM:** lokal via Ollama (kleines CPU-Modell, kein GPU nötig)
+- **Vektorspeicher:** umschaltbar – **`local`** (eingebettet, pure Go) oder **`qdrant`**
 - **Antworten:** strikt nur aus dem abgerufenen Wiki-Kontext – sonst
   „Das steht nicht im Wiki."
 
 ```
-BookStack ──REST──> Ingest ──Chunks──> Embeddings (Ollama) ──> ChromaDB
-                                                                   │
+BookStack ──REST──> Ingest ──Chunks──> Embeddings (Ollama) ──> Vektorspeicher
+                                                                     │
 Frage ──> Embedding ──> Ähnlichkeitssuche ──> Kontext ──> LLM (Ollama) ──> Antwort + Quellen
 ```
 
 ## Warum „lernt" es nur BookStack-Daten?
 
-Das Modell selbst wird **nicht** trainiert. Stattdessen wird bei jeder Frage
-relevanter Text aus dem Wiki gesucht und dem LLM als Kontext mitgegeben. Der
-System-Prompt zwingt das Modell, **nur** aus diesem Kontext zu antworten und
-kein Weltwissen zu verwenden. So bleibt die Wissensbasis exakt auf BookStack
-beschränkt und ist jederzeit aktuell (einfach neu indexieren).
+Das Modell wird **nicht** trainiert. Bei jeder Frage wird relevanter Text aus dem
+Wiki gesucht und dem LLM als Kontext mitgegeben. Der System-Prompt zwingt das
+Modell, **nur** aus diesem Kontext zu antworten und kein Weltwissen zu verwenden.
+So bleibt die Wissensbasis exakt auf BookStack beschränkt und ist jederzeit
+aktuell (einfach neu indexieren).
 
 ## Voraussetzungen
 
-1. **Python 3.10+**
+1. **Go 1.24+** (zum Bauen)
 2. **Ollama** installiert und gestartet (`ollama serve`), mit den Modellen:
    ```bash
    ollama pull llama3.2:1b       # kleines, CPU-taugliches Antwort-Modell
    ollama pull nomic-embed-text  # Embedding-Modell
    ```
-3. Eine erreichbare **BookStack-Instanz** mit API-Token
+3. Eine erreichbare **BookStack-Instanz** (extern) mit API-Token
    (BookStack → *Profil bearbeiten* → *API-Tokens*).
 
-## Installation
+## Bauen & Nutzen (lokal)
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env      # dann .env ausfüllen (BookStack-URL + Token)
+cp .env.example .env      # BookStack-URL + Token eintragen
+go build -o wiki-rog ./cmd/wiki-rog
+
+./wiki-rog test           # Verbindungen prüfen (BookStack + Ollama)
+./wiki-rog ingest         # Wiki indexieren (inkrementell)
+./wiki-rog ingest --reset # kompletter Neuaufbau
+./wiki-rog ask "Wie beantrage ich Urlaub?"
+./wiki-rog chat           # interaktiver Chat im Terminal
+./wiki-rog serve          # Web-UI auf http://localhost:8080
 ```
 
-## Nutzung
-
+Tests:
 ```bash
-# 1) Verbindungen prüfen (BookStack + Ollama)
-python cli.py test
-
-# 2) Wiki indexieren (beim ersten Mal; danach jederzeit erneut zum Aktualisieren)
-python cli.py ingest            # inkrementell (aktualisiert geänderte Seiten)
-python cli.py ingest --reset    # kompletter Neuaufbau
-
-# 3) Fragen stellen
-python cli.py ask "Wie beantrage ich Urlaub?"
-python cli.py chat              # interaktiver Chat im Terminal
-
-# 4) Weboberfläche
-streamlit run app.py
+go test ./...
 ```
 
-## Konfiguration (`.env`)
+## Vektorspeicher: `local` oder `qdrant`
+
+Umschaltbar über `VECTOR_BACKEND`:
+
+- **`local`** (Standard) – eingebettet, pure Go. Speichert Embeddings in einer
+  Datei unter `STORE_DIR` und sucht per In-Memory-Cosine-Ähnlichkeit. Kein
+  zusätzlicher Dienst, ideal für Wiki-Größen (tausende Chunks).
+- **`qdrant`** – nutzt einen externen [Qdrant](https://qdrant.tech)-Dienst über
+  HTTP (`QDRANT_URL`). Skaliert besser für sehr große Wikis.
+
+Nach einem Backend-Wechsel einmal `ingest --reset` ausführen.
+
+## Konfiguration (`.env` bzw. Umgebungsvariablen)
 
 | Variable | Bedeutung | Default |
 |---|---|---|
-| `BOOKSTACK_URL` | Basis-URL der BookStack-Instanz | – |
+| `BOOKSTACK_URL` | Basis-URL des externen Wikis | – |
 | `BOOKSTACK_TOKEN_ID` / `BOOKSTACK_TOKEN_SECRET` | API-Token | – |
-| `BOOKSTACK_BOOK_IDS` | Nur diese Bücher indexieren (kommagetrennt) | alle |
-| `BOOKSTACK_SHELF_IDS` | Nur Bücher dieser Regale indexieren | alle |
+| `BOOKSTACK_BOOK_IDS` / `BOOKSTACK_SHELF_IDS` | Filter (kommagetrennt) | alle |
+| `BOOKSTACK_VERIFY_SSL` | TLS-Prüfung des Wikis | `true` |
 | `OLLAMA_URL` | Ollama-Endpoint | `http://localhost:11434` |
-| `OLLAMA_LLM_MODEL` | Antwort-Modell | `llama3.1` |
+| `OLLAMA_LLM_MODEL` | Antwort-Modell | `llama3.2:1b` |
 | `OLLAMA_EMBED_MODEL` | Embedding-Modell | `nomic-embed-text` |
-| `CHROMA_DIR` | Speicherort des Vektorindex | `./data/chroma` |
+| `VECTOR_BACKEND` | `local` oder `qdrant` | `local` |
+| `VECTOR_COLLECTION` | Name der Collection/Datei | `bookstack` |
+| `STORE_DIR` | Speicherort (Backend `local`) | `./data/store` |
+| `QDRANT_URL` / `QDRANT_API_KEY` | Qdrant-Endpoint (Backend `qdrant`) | `http://qdrant:6333` |
 | `CHUNK_SIZE` / `CHUNK_OVERLAP` | Chunk-Größe/Überlappung (Zeichen) | `1000` / `150` |
 | `RETRIEVAL_TOP_K` | Anzahl Kontext-Chunks je Frage | `5` |
 | `RETRIEVAL_MAX_DISTANCE` | max. Cosine-Distanz für Treffer | `1.0` |
+| `HTTP_ADDR` | Adresse der Web-UI (`serve`) | `:8080` |
+
+Private CA: `SSL_CERT_FILE` auf das CA-Bundle setzen (Go liest diese Variable).
 
 ## Deployment auf Kubernetes
 
 Der komplette Stack (Ollama mit kleinem CPU-Modell, Web-UI, Ingest) läuft im
-Cluster – **ohne GPU**. Manifeste liegen unter `k8s/`.
+Cluster – **ohne GPU**. Das BookStack-Wiki bleibt **extern**. Manifeste: `k8s/`.
 
 **1) Image bauen und dem Cluster verfügbar machen**
 ```bash
@@ -102,106 +115,86 @@ cp k8s/secret.example.yaml k8s/secret.yaml   # echte Token eintragen (gitignored
 **3) Ausrollen**
 ```bash
 kubectl apply -f k8s/namespace.yaml
-kubectl apply -f k8s/secret.yaml          # oder: kubectl create secret ... (siehe Datei)
-kubectl apply -k k8s/                      # Kern: Ollama, App, Ingest-Job, Modell-Pull
+kubectl apply -f k8s/secret.yaml
+kubectl apply -k k8s/                        # Ollama, App, Ingest-Job, Modell-Pull
 
-# Warten, bis Modelle geladen und App bereit sind
 kubectl -n wiki-rog wait --for=condition=complete job/ollama-pull-models --timeout=1200s
 kubectl -n wiki-rog rollout status deploy/wiki-rog-app
 ```
 
-**4) Wiki indexieren** (der `wiki-rog-ingest`-Job startet automatisch mit `apply -k`).
-Erneut indexieren zum Aktualisieren:
+**4) Web-UI öffnen**
 ```bash
-kubectl -n wiki-rog delete job wiki-rog-ingest --ignore-not-found
-kubectl apply -f k8s/ingest-job.yaml
-```
-
-**5) Web-UI öffnen**
-```bash
-kubectl -n wiki-rog port-forward svc/wiki-rog-app 8501:80
-# -> http://localhost:8501
+kubectl -n wiki-rog port-forward svc/wiki-rog-app 8080:80
+# -> http://localhost:8080
 ```
 
 **Optional**
 - `kubectl apply -f k8s/ingress.yaml` – Ingress (host/ingressClassName anpassen)
 - `kubectl apply -f k8s/ingest-cronjob.yaml` – tägliche Auto-Aktualisierung
 - `kubectl apply -f k8s/networkpolicy.yaml` – Egress zum externen Wiki (bei Default-Deny)
+- `kubectl apply -f k8s/qdrant.yaml` – Qdrant-Backend (danach `VECTOR_BACKEND=qdrant`)
 
 **Kleines CPU-Modell:** Standard ist `llama3.2:1b` (~1,3 GB) + `nomic-embed-text`.
-Andere Modelle einfach in `k8s/configmap.yaml` (`OLLAMA_LLM_MODEL`) setzen und den
+Andere Modelle in `k8s/configmap.yaml` (`OLLAMA_LLM_MODEL`) setzen und den
 `ollama-pull-models`-Job erneut ausführen. Für Ollama sind bewusst **keine**
-GPU-Ressourcen angefordert – es läuft rein auf der CPU.
+GPU-Ressourcen angefordert – reiner CPU-Betrieb.
 
 ### Externes Wiki (außerhalb des Clusters)
 
-Das BookStack-Wiki wird **nicht** im Cluster betrieben – es bleibt extern. Im
-Cluster laufen nur App, Ollama und der Ingest-Job. Benötigt wird lediglich die
-**externe URL** (`BOOKSTACK_URL` in `k8s/configmap.yaml`) plus **Token**
-(`wiki-rog-secret`). Der Ingest-Job holt die Inhalte per HTTPS live von dort.
+Das BookStack-Wiki wird **nicht** im Cluster betrieben. Benötigt wird nur die
+externe URL (`BOOKSTACK_URL`) + Token (`wiki-rog-secret`). Der Ingest-Job holt
+die Inhalte per HTTPS live von dort.
 
-Zu beachten:
-
-- **Egress:** Ingest-Job/App müssen nach außen zum Wiki (Port 443) dürfen. In
-  Clustern mit Default-Deny: `kubectl apply -f k8s/networkpolicy.yaml` (erlaubt
-  DNS, HTTPS nach außen und App↔Ollama). Liegt das Wiki in einem **privaten
-  Netz**, den `except`-Block in der Policy für dessen Subnetz anpassen.
+- **Egress:** Ingest-Job/App müssen nach außen (Port 443) dürfen. Bei
+  Default-Deny: `kubectl apply -f k8s/networkpolicy.yaml`. Liegt das Wiki in
+  einem **privaten Netz**, den `except`-Block der Policy anpassen.
 - **Öffentliches Zertifikat:** funktioniert ohne weitere Einstellungen.
-- **Private CA / internes Zertifikat:** CA als ConfigMap/Secret mounten und
-  `REQUESTS_CA_BUNDLE` auf den Pfad setzen – z. B.:
-  ```bash
-  kubectl -n wiki-rog create configmap wiki-ca --from-file=ca.crt=/pfad/ca.crt
-  ```
-  dann in `app.yaml`/`ingest-job.yaml` einen Volume-Mount `/certs` ergänzen und
-  in `configmap.yaml` `REQUESTS_CA_BUNDLE: "/certs/ca.crt"` setzen.
-- **Self-signed (Notlösung):** `BOOKSTACK_VERIFY_SSL: "false"` in
-  `k8s/configmap.yaml` – deaktiviert die TLS-Prüfung, nur wenn keine CA
-  verfügbar ist.
+- **Private CA:** CA als ConfigMap mounten und `SSL_CERT_FILE` setzen.
+- **Self-signed (Notlösung):** `BOOKSTACK_VERIFY_SSL: "false"`.
 
-Test der Verbindung aus dem Cluster heraus:
+Verbindungstest aus dem Cluster:
 ```bash
 kubectl -n wiki-rog run bs-test --rm -it --restart=Never \
-  --image=wiki-rog:latest --command -- python cli.py test
+  --image=wiki-rog:latest --command -- /app/wiki-rog test
 ```
 
 ## Projektstruktur
 
 ```
 Wiki-rog/
-├── cli.py                    # Kommandozeile: test / ingest / ask / chat
-├── app.py                    # Streamlit-Web-UI
-├── config.py                 # Konfiguration aus .env
-├── Dockerfile                # Container-Image
-├── requirements.txt
+├── cmd/wiki-rog/main.go       # CLI: test / ingest / ask / chat / serve
+├── internal/
+│   ├── config/                # Konfiguration aus Umgebung/.env
+│   ├── bookstack/             # BookStack REST-API-Client
+│   ├── chunk/                 # Text-Chunking (+ Tests)
+│   ├── ollama/                # Ollama (Embeddings + Chat, Streaming)
+│   ├── store/                 # Vektorspeicher: Interface + local + qdrant (+ Tests)
+│   ├── rag/                   # Retrieval + Antwortgenerierung
+│   ├── ingest/               # Pipeline: fetch → chunk → embed → store
+│   └── webui/                 # HTTP-Server + eingebettete Chat-UI (SSE)
+├── go.mod
+├── Dockerfile                 # Multi-Stage Go-Build (distroless)
 ├── .env.example
-├── src/
-│   ├── bookstack_client.py   # BookStack REST-API
-│   ├── chunker.py            # Text-Chunking
-│   ├── ollama_client.py      # Ollama (Embeddings + Chat)
-│   ├── vectorstore.py        # ChromaDB
-│   ├── ingest.py             # Pipeline: fetch → chunk → embed → store
-│   └── rag.py                # Retrieval + Antwortgenerierung
-└── k8s/                      # Kubernetes-Manifeste
-    ├── kustomization.yaml    # Kern-Ressourcen gebündelt
+└── k8s/                       # Kubernetes-Manifeste
+    ├── kustomization.yaml
     ├── namespace.yaml
-    ├── configmap.yaml        # nicht-geheime Konfiguration + Modellwahl
-    ├── secret.example.yaml   # Vorlage für BookStack-Token
-    ├── storage.yaml          # PVC für ChromaDB
-    ├── ollama.yaml           # Ollama-Deployment (CPU-only) + Service + PVC
-    ├── ollama-pull-job.yaml  # lädt die Modelle in Ollama
-    ├── app.yaml              # Web-UI Deployment + Service
-    ├── ingest-job.yaml       # einmaliger Ingest
-    ├── ingest-cronjob.yaml   # optionale Auto-Aktualisierung
-    ├── networkpolicy.yaml    # optionaler Egress zum externen Wiki
-    └── ingress.yaml          # optionaler Ingress
+    ├── configmap.yaml         # Konfiguration + Backend-/Modellwahl
+    ├── secret.example.yaml    # Vorlage für BookStack-Token
+    ├── storage.yaml           # PVC für local-Backend
+    ├── ollama.yaml            # Ollama-Deployment (CPU-only) + Service + PVC
+    ├── ollama-pull-job.yaml   # lädt die Modelle in Ollama
+    ├── app.yaml               # Web-UI Deployment + Service
+    ├── ingest-job.yaml        # einmaliger Ingest
+    ├── ingest-cronjob.yaml    # optionale Auto-Aktualisierung
+    ├── qdrant.yaml            # optionales Qdrant-Backend
+    ├── networkpolicy.yaml     # optionaler Egress zum externen Wiki
+    └── ingress.yaml           # optionaler Ingress
 ```
 
 ## Hinweise
 
 - **Datenschutz:** LLM und Embeddings laufen lokal über Ollama; nur die
   BookStack-API wird kontaktiert. Nichts geht an externe Cloud-Dienste.
-- **Aktualität:** Nach Änderungen im Wiki einfach `python cli.py ingest`
-  ausführen – geänderte Seiten werden neu eingelesen.
-- **Andere Modelle:** In `.env` z. B. `OLLAMA_LLM_MODEL=mistral` oder ein
-  deutschsprachig starkes Modell setzen. Wenn du das Embedding-Modell
-  wechselst, danach `ingest --reset` ausführen.
+- **Aktualität:** Nach Änderungen im Wiki einfach `wiki-rog ingest` ausführen –
+  geänderte Seiten werden neu eingelesen.
+- **Embedding-Modell gewechselt?** Danach `ingest --reset` ausführen.

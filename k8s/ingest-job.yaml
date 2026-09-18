@@ -1,4 +1,4 @@
-# Einmaliger Ingest-Job: liest BookStack aus und baut den Vektorindex.
+# Einmaliger Ingest-Job: liest das externe BookStack aus und baut den Index.
 # Erneut ausführen zum Aktualisieren:
 #   kubectl -n wiki-rog delete job wiki-rog-ingest --ignore-not-found
 #   kubectl apply -f k8s/ingest-job.yaml
@@ -23,23 +23,23 @@ spec:
         - name: ingest
           image: wiki-rog:latest
           imagePullPolicy: IfNotPresent
-          command: ["python", "cli.py", "ingest"]
+          args: ["ingest"]
           envFrom:
             - configMapRef:
                 name: wiki-rog-config
             - secretRef:
                 name: wiki-rog-secret
           volumeMounts:
-            - name: chroma
+            - name: store
               mountPath: /data
           resources:
             requests:
-              cpu: "200m"
-              memory: "512Mi"
+              cpu: "100m"
+              memory: "128Mi"
             limits:
-              cpu: "2"
-              memory: "2Gi"
+              cpu: "1"
+              memory: "512Mi"
       volumes:
-        - name: chroma
+        - name: store
           persistentVolumeClaim:
-            claimName: chroma-data
+            claimName: store-data
