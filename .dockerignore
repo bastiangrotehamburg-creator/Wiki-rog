@@ -3,6 +3,9 @@
 .env
 data
 k8s
+config
+docs
+docker-compose.yml
 README.md
 *.md
 Dockerfile

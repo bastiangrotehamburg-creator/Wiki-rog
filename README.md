@@ -128,6 +128,49 @@ Nach einem Backend-Wechsel einmal `ingest --reset` ausführen.
 
 Private CA: `SSL_CERT_FILE` auf das CA-Bundle setzen (Go liest diese Variable).
 
+## Deployment auf einem VPS (Docker Compose)
+
+Für einen einzelnen Server ist Docker Compose der einfachste Weg – Ollama +
+WebUI + Ingest in einer Datei (`docker-compose.yml`).
+
+```bash
+# 1) Konfiguration
+cp .env.example .env            # BookStack-URL + Token eintragen
+#    (für Login/Admin zusätzlich config/access.json anlegen, s. u.)
+
+# 2) Ollama starten und Modelle laden (einmalig)
+docker compose up -d ollama
+docker compose run --rm model-init
+
+# 3) Wiki indexieren
+docker compose run --rm ingest --reset
+
+# 4) WebUI starten
+docker compose up -d app
+#    -> standardmäßig auf 127.0.0.1:8080 (hinter Reverse-Proxy).
+#    Direkt erreichbar: in .env  APP_BIND=0.0.0.0  setzen.
+```
+
+Nützliche Befehle:
+```bash
+docker compose logs -f app                 # Logs
+docker compose run --rm ingest             # inkrementell neu einlesen
+docker compose run --rm app hashpw 'pw'    # Passwort-Hash erzeugen
+docker compose pull && docker compose up -d --build   # aktualisieren
+```
+
+**Persistenz:** Modelle liegen im Volume `ollama_models`, der Vektorindex in
+`store_data` – beide überleben Neustarts/Updates.
+
+**Login/Admin (optional):** `config/access.json` anlegen (siehe
+`config/access.example.json`) und in `.env` ein `SESSION_SECRET` setzen; danach
+`docker compose up -d app`. Ohne `access.json` läuft die WebUI offen.
+
+**Sicherheit auf dem VPS:** Am besten die WebUI nur lokal binden
+(`APP_BIND=127.0.0.1`, Standard) und einen Reverse-Proxy (Caddy/Traefik/nginx)
+mit TLS davorsetzen; dann in `.env` `SESSION_SECURE=true`. Ollama ist in Compose
+nicht nach außen exponiert (nur `expose`, kein `ports`).
+
 ## Deployment auf Kubernetes
 
 Der komplette Stack (Ollama mit kleinem CPU-Modell, Web-UI, Ingest) läuft im
@@ -342,6 +385,7 @@ Wiki-rog/
 ├── docs/ANLEITUNG-LERNEN.md   # Anleitung zum Indexieren (inkl. Admin-Button)
 ├── go.mod
 ├── Dockerfile                 # Multi-Stage Go-Build (distroless)
+├── docker-compose.yml         # VPS-Deployment (Ollama + WebUI + Ingest)
 ├── .env.example
 └── k8s/                       # Kubernetes-Manifeste
     ├── kustomization.yaml
