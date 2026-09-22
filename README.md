@@ -35,6 +35,10 @@ Quellenangaben, Hell-/Dunkelmodus je nach System, responsiv bis Smartphone-Breit
 |---|---|
 | ![Admin hell](docs/screenshots/admin-light.png) | ![Admin dunkel](docs/screenshots/admin-dark.png) |
 
+| Nutzerverwaltung (hell) | Nutzerverwaltung (dunkel) |
+|---|---|
+| ![Nutzer hell](docs/screenshots/users-light.png) | ![Nutzer dunkel](docs/screenshots/users-dark.png) |
+
 | Desktop (dunkel) | Desktop (hell) |
 |---|---|
 | ![Desktop dunkel](docs/screenshots/desktop-dark.png) | ![Desktop hell](docs/screenshots/desktop-light.png) |
@@ -330,6 +334,14 @@ Damit Nutzer nur die Inhalte sehen, für die sie berechtigt sind, gibt es ein
    und bekommt Antworten **nur** aus den Collections seiner Gruppen.
 3. Passwörter als **PBKDF2-Hash** (Go-Standardbibliothek), Session als signiertes
    Cookie (HMAC). Ohne Access-Konfiguration läuft die WebUI **offen** (kein Login).
+
+**Nutzer im Browser verwalten:** Admins finden in der Chat-Leiste den Link
+**„Nutzer verwalten"** (`/admin`) und können dort Nutzer **anlegen, bearbeiten
+und löschen** (Benutzername, Passwort, Gruppen, Admin-Flag) – ohne Dateien von
+Hand zu editieren. Die Nutzer werden in `USERS_FILE` (Standard `/data/users.json`,
+im persistenten Volume) gespeichert. `config/access.json` dient nur noch für die
+**Gruppen/Tokens** und den **ersten Admin** (Seed beim ersten Start). Der letzte
+Admin kann nicht gelöscht/herabgestuft werden.
 
 **Einrichten (lokal):**
 ```bash

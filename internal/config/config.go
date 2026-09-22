@@ -42,6 +42,7 @@ type Config struct {
 	// Zugriff / Auth (Gruppenmodell). Ist AccessConfig leer bzw. die Datei
 	// nicht vorhanden, läuft die WebUI offen (kein Login, eine Collection).
 	AccessConfig    string
+	UsersFile       string
 	SessionSecret   string
 	SessionTTLHours int
 	SessionSecure   bool
@@ -79,6 +80,7 @@ func Load() Config {
 		HTTPAddr: env("HTTP_ADDR", ":8080"),
 
 		AccessConfig:    env("ACCESS_CONFIG", "./config/access.json"),
+		UsersFile:       env("USERS_FILE", "./data/users.json"),
 		SessionSecret:   os.Getenv("SESSION_SECRET"),
 		SessionTTLHours: intEnv("SESSION_TTL_HOURS", 12),
 		SessionSecure:   boolEnv("SESSION_SECURE", false),

@@ -47,6 +47,9 @@
   .adminbar button:hover { background: var(--accent-hover); }
   .adminbar button:disabled { opacity: .6; cursor: default; }
   .adminbar label { color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+  .adminbar .adminlink { color: var(--accent); text-decoration: none; font-size: 13px;
+    border: 1px solid var(--border); padding: 8px 12px; border-radius: 8px; }
+  .adminbar .adminlink:hover { border-color: var(--accent); }
   .adminbar .status { color: var(--muted); margin-left: auto; }
   main { max-width: 820px; margin: 0 auto; padding: 16px; }
   #chat { display: flex; flex-direction: column; gap: 14px; padding-bottom: 110px; }
@@ -100,6 +103,7 @@
 <div class="adminbar" id="adminbar">
   <button id="reindex" type="button">Wiki neu einlesen</button>
   <label><input type="checkbox" id="reset"> komplett neu (reset)</label>
+  <a class="adminlink" id="useradmin" href="/admin">Nutzer verwalten</a>
   <span class="status" id="astatus">bereit</span>
 </div>
 <main>

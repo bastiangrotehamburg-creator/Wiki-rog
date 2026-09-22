@@ -1,6 +1,7 @@
 // Package auth stellt das gruppenbasierte Zugriffsmodell mit Login bereit:
 //   - Nutzer/Passwort (PBKDF2-Hash, Standardbibliothek)
-//   - Gruppen -> Collection-Zuordnung
+//   - Gruppen -> Collection-Zuordnung (aus access.json, enthält Tokens)
+//   - Nutzer zur Laufzeit verwaltbar (persistiert in users.json)
 //   - signierte Session-Cookies (HMAC-SHA256)
 //
 // Ist keine Access-Konfiguration vorhanden, ist Auth deaktiviert und die WebUI
@@ -18,8 +19,10 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -46,6 +49,13 @@ type User struct {
 	Admin        bool     `json:"admin"`
 }
 
+// PublicUser ist die Darstellung ohne Passwort-Hash (für die Nutzerliste).
+type PublicUser struct {
+	Username string   `json:"username"`
+	Groups   []string `json:"groups"`
+	Admin    bool     `json:"admin"`
+}
+
 // GroupTarget beschreibt eine (neu) einlesbare Gruppe inkl. Token.
 type GroupTarget struct {
 	Group       string
@@ -59,6 +69,10 @@ type accessFile struct {
 	Users  []User           `json:"users"`
 }
 
+type usersFile struct {
+	Users []User `json:"users"`
+}
+
 // Session ist der Inhalt eines gültigen Cookies.
 type Session struct {
 	Username string   `json:"u"`
@@ -67,19 +81,24 @@ type Session struct {
 	Exp      int64    `json:"e"`
 }
 
-// Service kapselt Access-Konfiguration und Session-Handling.
+// Service kapselt Access-Konfiguration, Nutzerverwaltung und Session-Handling.
 type Service struct {
-	groups map[string]Group
-	users  map[string]User
-	secret []byte
-	ttl    time.Duration
-	secure bool
+	groups    map[string]Group
+	secret    []byte
+	ttl       time.Duration
+	secure    bool
+	usersPath string
+
+	mu    sync.RWMutex
+	users map[string]User // key = lowercased username
 }
 
-// Load liest die Access-Konfiguration. Fehlt die Datei, wird (nil, nil)
-// zurückgegeben -> Auth ist deaktiviert.
-func Load(path, sessionSecret string, ttlHours int, secure bool) (*Service, error) {
-	data, err := os.ReadFile(path)
+// Load liest die Access-Konfiguration (Gruppen + Seed-Nutzer). Fehlt die Datei,
+// wird (nil, nil) zurückgegeben -> Auth ist deaktiviert. Nutzer werden aus
+// usersPath geladen, sofern vorhanden; sonst aus access.json übernommen und dort
+// erstmalig gespeichert.
+func Load(accessPath, usersPath, sessionSecret string, ttlHours int, secure bool) (*Service, error) {
+	data, err := os.ReadFile(accessPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -88,10 +107,7 @@ func Load(path, sessionSecret string, ttlHours int, secure bool) (*Service, erro
 	}
 	var af accessFile
 	if err := json.Unmarshal(data, &af); err != nil {
-		return nil, fmt.Errorf("Access-Konfiguration %s: %w", path, err)
-	}
-	if len(af.Users) == 0 {
-		return nil, fmt.Errorf("Access-Konfiguration %s enthält keine Nutzer", path)
+		return nil, fmt.Errorf("Access-Konfiguration %s: %w", accessPath, err)
 	}
 
 	secret := []byte(sessionSecret)
@@ -103,35 +119,181 @@ func Load(path, sessionSecret string, ttlHours int, secure bool) (*Service, erro
 		fmt.Fprintln(os.Stderr, "WARNUNG: SESSION_SECRET nicht gesetzt – zufälliges Secret erzeugt. "+
 			"Sessions überstehen keinen Neustart und funktionieren nicht mit mehreren Replicas.")
 	}
-
-	users := make(map[string]User, len(af.Users))
-	for _, u := range af.Users {
-		users[strings.ToLower(u.Username)] = u
-	}
 	if ttlHours <= 0 {
 		ttlHours = 12
 	}
-	return &Service{
-		groups: af.Groups,
-		users:  users,
-		secret: secret,
-		ttl:    time.Duration(ttlHours) * time.Hour,
-		secure: secure,
-	}, nil
+
+	s := &Service{
+		groups:    af.Groups,
+		secret:    secret,
+		ttl:       time.Duration(ttlHours) * time.Hour,
+		secure:    secure,
+		usersPath: usersPath,
+		users:     map[string]User{},
+	}
+
+	// Nutzer laden: users.json hat Vorrang; sonst aus access.json übernehmen.
+	loadedFromStore := false
+	if usersPath != "" {
+		if raw, err := os.ReadFile(usersPath); err == nil {
+			var uf usersFile
+			if err := json.Unmarshal(raw, &uf); err != nil {
+				return nil, fmt.Errorf("Nutzerdatei %s: %w", usersPath, err)
+			}
+			for _, u := range uf.Users {
+				s.users[strings.ToLower(u.Username)] = u
+			}
+			loadedFromStore = true
+		}
+	}
+	if !loadedFromStore {
+		for _, u := range af.Users {
+			s.users[strings.ToLower(u.Username)] = u
+		}
+		// Seed dauerhaft ablegen (best effort).
+		if err := s.persistUsers(); err != nil {
+			fmt.Fprintf(os.Stderr, "WARNUNG: Nutzerdatei konnte nicht geschrieben werden (%v) – "+
+				"neue Nutzer überleben keinen Neustart.\n", err)
+		}
+	}
+
+	if len(s.users) == 0 {
+		return nil, fmt.Errorf("keine Nutzer vorhanden – lege mindestens einen Admin in %s an", accessPath)
+	}
+	return s, nil
+}
+
+// persistUsers schreibt die Nutzer atomar nach usersPath (Aufrufer hält Lock,
+// oder es ist der Seed-Fall vor Nebenläufigkeit).
+func (s *Service) persistUsers() error {
+	if s.usersPath == "" {
+		return nil
+	}
+	list := make([]User, 0, len(s.users))
+	for _, u := range s.users {
+		list = append(list, u)
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].Username < list[j].Username })
+	raw, err := json.MarshalIndent(usersFile{Users: list}, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := s.usersPath + ".tmp"
+	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, s.usersPath)
 }
 
 // Authenticate prüft Nutzer/Passwort.
 func (s *Service) Authenticate(username, password string) (User, bool) {
+	s.mu.RLock()
 	u, ok := s.users[strings.ToLower(strings.TrimSpace(username))]
+	s.mu.RUnlock()
 	if !ok {
-		// Dummy-Verify gegen Timing-Unterschiede
-		_ = VerifyPassword("pbkdf2_sha256$210000$AAAA$AAAA", password)
+		_ = VerifyPassword("pbkdf2_sha256$210000$AAAA$AAAA", password) // Timing-Angleich
 		return User{}, false
 	}
 	if !VerifyPassword(u.PasswordHash, password) {
 		return User{}, false
 	}
 	return u, true
+}
+
+// ListUsers liefert alle Nutzer ohne Passwort-Hash.
+func (s *Service) ListUsers() []PublicUser {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]PublicUser, 0, len(s.users))
+	for _, u := range s.users {
+		out = append(out, PublicUser{Username: u.Username, Groups: u.Groups, Admin: u.Admin})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Username < out[j].Username })
+	return out
+}
+
+// UpsertUser legt einen Nutzer an oder ändert ihn. Leeres Passwort bei einem
+// bestehenden Nutzer behält das alte Passwort.
+func (s *Service) UpsertUser(username, password string, groups []string, admin bool) error {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return fmt.Errorf("Benutzername darf nicht leer sein")
+	}
+	key := strings.ToLower(username)
+
+	// nur bekannte Gruppen zulassen
+	clean := make([]string, 0, len(groups))
+	for _, g := range groups {
+		g = strings.TrimSpace(g)
+		if _, ok := s.groups[g]; ok {
+			clean = append(clean, g)
+		}
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing, exists := s.users[key]
+	hash := ""
+	if exists {
+		hash = existing.PasswordHash
+	}
+	if strings.TrimSpace(password) != "" {
+		h, err := HashPassword(password)
+		if err != nil {
+			return err
+		}
+		hash = h
+	} else if !exists {
+		return fmt.Errorf("neuer Nutzer braucht ein Passwort")
+	}
+
+	// Verhindern, dass der letzte Admin seine Rechte verliert.
+	if exists && existing.Admin && !admin && s.countAdminsLocked(key) == 0 {
+		return fmt.Errorf("mindestens ein Admin muss erhalten bleiben")
+	}
+
+	s.users[key] = User{Username: username, PasswordHash: hash, Groups: clean, Admin: admin}
+	return s.persistUsers()
+}
+
+// DeleteUser entfernt einen Nutzer (nie den letzten Admin).
+func (s *Service) DeleteUser(username string) error {
+	key := strings.ToLower(strings.TrimSpace(username))
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u, ok := s.users[key]
+	if !ok {
+		return fmt.Errorf("Nutzer nicht gefunden")
+	}
+	if u.Admin && s.countAdminsLocked(key) == 0 {
+		return fmt.Errorf("der letzte Admin kann nicht gelöscht werden")
+	}
+	delete(s.users, key)
+	return s.persistUsers()
+}
+
+// countAdminsLocked zählt Admins, ignoriert dabei den Nutzer exceptKey.
+func (s *Service) countAdminsLocked(exceptKey string) int {
+	n := 0
+	for k, u := range s.users {
+		if k == exceptKey {
+			continue
+		}
+		if u.Admin {
+			n++
+		}
+	}
+	return n
+}
+
+// GroupNames liefert die verfügbaren Gruppennamen (für die Nutzerverwaltung).
+func (s *Service) GroupNames() []string {
+	out := make([]string, 0, len(s.groups))
+	for name := range s.groups {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // CollectionsFor liefert die (deduplizierten) Collections der genannten Gruppen.

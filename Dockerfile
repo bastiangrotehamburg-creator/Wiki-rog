@@ -23,8 +23,10 @@ COPY --from=build /out/wiki-rog /app/wiki-rog
 # schreiben kann. Ein leeres Named Volume erbt diese Rechte beim ersten Mounten.
 COPY --from=build --chown=65532:65532 /out/data /data
 
-# File-basierter Vektorspeicher unter /data (in k8s per PVC gemountet)
+# File-basierter Vektorspeicher + Nutzerdatei unter /data (beschreibbar; in k8s
+# per PVC gemountet). USERS_FILE muss beschreibbar sein (Nutzerverwaltung).
 ENV STORE_DIR=/data/store \
+    USERS_FILE=/data/users.json \
     HTTP_ADDR=:8080
 
 EXPOSE 8080

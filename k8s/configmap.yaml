@@ -35,6 +35,8 @@ data:
   # Existiert das Secret wiki-rog-access (mit access.json) nicht, läuft die
   # WebUI OFFEN (kein Login). Mit Secret: Login + gruppenbasierte Collections.
   ACCESS_CONFIG: "/etc/wiki-rog/access.json"
+  # Beschreibbare Nutzerdatei (Nutzerverwaltung in der WebUI) – im PVC unter /data.
+  USERS_FILE: "/data/users.json"
   SESSION_TTL_HOURS: "12"
   SESSION_SECURE: "false"   # auf "true" setzen, wenn hinter HTTPS/Ingress
 

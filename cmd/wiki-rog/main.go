@@ -204,7 +204,7 @@ func cmdServe(ctx context.Context, cfg config.Config) error {
 	engine, mgr := newEngine(cfg)
 	defer mgr.Close()
 
-	authSvc, err := auth.Load(cfg.AccessConfig, cfg.SessionSecret, cfg.SessionTTLHours, cfg.SessionSecure)
+	authSvc, err := auth.Load(cfg.AccessConfig, cfg.UsersFile, cfg.SessionSecret, cfg.SessionTTLHours, cfg.SessionSecure)
 	if err != nil {
 		return err
 	}

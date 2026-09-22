@@ -23,6 +23,9 @@ var indexHTML []byte
 //go:embed login.html
 var loginHTML []byte
 
+//go:embed admin.html
+var adminHTML []byte
+
 // AdminConfig bündelt alles für die Reindex-Funktion.
 type AdminConfig struct {
 	Runner       *admin.Runner
@@ -54,6 +57,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/ask", s.handleAsk)
 	mux.HandleFunc("/api/admin/reindex", s.handleReindex)
 	mux.HandleFunc("/api/admin/status", s.handleAdminStatus)
+	mux.HandleFunc("/admin", s.handleAdminPage)
+	mux.HandleFunc("/api/admin/users", s.handleAdminUsers)
+	mux.HandleFunc("/api/admin/users/delete", s.handleAdminUserDelete)
+	mux.HandleFunc("/api/admin/groups", s.handleAdminGroups)
 	mux.HandleFunc("/", s.handleIndex)
 	return mux
 }
@@ -206,6 +213,81 @@ func (s *Server) handleAdminStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.admin.Runner.Status())
+}
+
+// --- Nutzerverwaltung (nur Admin, nur im Login-Modus) ---------------------
+
+func (s *Server) handleAdminPage(w http.ResponseWriter, r *http.Request) {
+	if !s.authEnabled() {
+		http.Error(w, "Nutzerverwaltung nur im Login-Modus verfügbar", http.StatusNotFound)
+		return
+	}
+	if !s.isAdmin(r) {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write(adminHTML)
+}
+
+func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
+	if !s.authEnabled() || !s.isAdmin(r) {
+		http.Error(w, "keine Admin-Berechtigung", http.StatusForbidden)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, http.StatusOK, s.auth.ListUsers())
+	case http.MethodPost:
+		var body struct {
+			Username string   `json:"username"`
+			Password string   `json:"password"`
+			Groups   []string `json:"groups"`
+			Admin    bool     `json:"admin"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "ungültige Anfrage"})
+			return
+		}
+		if err := s.auth.UpsertUser(body.Username, body.Password, body.Groups, body.Admin); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"result": "gespeichert"})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleAdminUserDelete(w http.ResponseWriter, r *http.Request) {
+	if !s.authEnabled() || !s.isAdmin(r) {
+		http.Error(w, "keine Admin-Berechtigung", http.StatusForbidden)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Username string `json:"username"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "ungültige Anfrage"})
+		return
+	}
+	if err := s.auth.DeleteUser(body.Username); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"result": "gelöscht"})
+}
+
+func (s *Server) handleAdminGroups(w http.ResponseWriter, r *http.Request) {
+	if !s.authEnabled() || !s.isAdmin(r) {
+		http.Error(w, "keine Admin-Berechtigung", http.StatusForbidden)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.auth.GroupNames())
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
