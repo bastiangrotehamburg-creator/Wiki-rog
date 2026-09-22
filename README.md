@@ -156,8 +156,13 @@ Nützliche Befehle:
 docker compose logs -f app                 # Logs
 docker compose run --rm ingest             # inkrementell neu einlesen
 docker compose run --rm app hashpw 'pw'    # Passwort-Hash erzeugen
-docker compose pull && docker compose up -d --build   # aktualisieren
+docker compose up -d --build               # App neu bauen & aktualisieren
+docker compose pull ollama                 # nur das Ollama-Image aktualisieren
 ```
+
+> Hinweis: `docker compose pull` (ohne Service) schlägt fehl, weil `wiki-rog`
+> lokal gebaut und in keiner Registry liegt. Deshalb `--build` verwenden bzw.
+> gezielt nur `ollama` pullen.
 
 **Persistenz:** Modelle liegen im Volume `ollama_models`, der Vektorindex in
 `store_data` – beide überleben Neustarts/Updates.

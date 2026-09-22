@@ -54,6 +54,7 @@ services:
   app:
     build: .
     image: wiki-rog:latest
+    pull_policy: build          # lokal bauen, nicht aus Registry ziehen
     restart: unless-stopped
     depends_on:
       ollama:
@@ -82,6 +83,7 @@ services:
   ingest:
     build: .
     image: wiki-rog:latest
+    pull_policy: build          # lokal bauen, nicht aus Registry ziehen
     profiles: ["tools"]
     depends_on:
       ollama:
