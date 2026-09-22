@@ -12,13 +12,18 @@ COPY . .
 # Statisches Binary (CGO aus), damit es in einem minimalen Image läuft.
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" \
     -o /out/wiki-rog ./cmd/wiki-rog
+# Leeres Datenverzeichnis, das dem non-root-User gehört (siehe unten).
+RUN mkdir -p /out/data
 
 # --- Runtime-Stage ---------------------------------------------------------
 FROM gcr.io/distroless/static-debian12:nonroot
 WORKDIR /app
 COPY --from=build /out/wiki-rog /app/wiki-rog
+# /data dem non-root-User (uid/gid 65532) übereignen, damit der Store dort
+# schreiben kann. Ein leeres Named Volume erbt diese Rechte beim ersten Mounten.
+COPY --from=build --chown=65532:65532 /out/data /data
 
-# ChromaDB-Ersatz: file-basierter Store unter /data (in k8s per PVC gemountet)
+# File-basierter Vektorspeicher unter /data (in k8s per PVC gemountet)
 ENV STORE_DIR=/data/store \
     HTTP_ADDR=:8080
 
