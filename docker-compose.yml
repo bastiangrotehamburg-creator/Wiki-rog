@@ -98,8 +98,12 @@ services:
     volumes:
       - store_data:/data
       - ./config:/etc/wiki-rog:ro
-    entrypoint: ["/app/wiki-rog"]
-    command: ["ingest"]
+    # entrypoint enthält bereits "ingest", damit
+    #   docker compose run --rm ingest            -> inkrementell
+    #   docker compose run --rm ingest --reset    -> Neuaufbau
+    # beide funktionieren (angehängte Args landen nach "ingest").
+    entrypoint: ["/app/wiki-rog", "ingest"]
+    command: []
 
 volumes:
   ollama_models:
